@@ -23,6 +23,20 @@ export type EmailClassification = {
   reason: string;
 };
 
+/**
+ * Représentation minimale d'un email dans l'interface de tri.
+ * Cette forme pourra plus tard être alimentée par Gmail et la base de données.
+ */
+export type OrganizerEmail = ClassifyEmailRequest & {
+  id: string;
+  senderName: string;
+  preview: string;
+  receivedAt: string;
+  category: EmailCategory;
+  isRead: boolean;
+  isStarred: boolean;
+};
+
 export type ClassifyEmailSuccessResponse = {
   success: true;
   data: EmailClassification & {

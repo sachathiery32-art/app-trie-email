@@ -2,21 +2,11 @@
 
 import { useState, type FormEvent } from "react";
 
+import { EMAIL_CATEGORY_LABELS } from "@/lib/email-categories";
 import type {
   ClassifyEmailRequest,
   ClassifyEmailResponse,
-  EmailCategory,
 } from "@/types/email";
-
-const CATEGORY_LABELS = {
-  professional: "Professionnel",
-  personal: "Personnel",
-  newsletter: "Newsletter",
-  promotion: "Promotion",
-  notification: "Notification",
-  spam: "Spam",
-  other: "Autre",
-} satisfies Record<EmailCategory, string>;
 
 const INITIAL_EMAIL: ClassifyEmailRequest = {
   sender: "offers@productivity-app.example",
@@ -228,7 +218,7 @@ export function EmailClassificationForm() {
               Catégorie
             </p>
             <p className="mt-2 text-3xl font-semibold tracking-tight text-neutral-950">
-              {CATEGORY_LABELS[classificationState.data.category]}
+              {EMAIL_CATEGORY_LABELS[classificationState.data.category]}
             </p>
             <code className="mt-2 inline-block bg-neutral-200 px-2 py-1 font-mono text-xs text-neutral-700">
               {classificationState.data.category}
