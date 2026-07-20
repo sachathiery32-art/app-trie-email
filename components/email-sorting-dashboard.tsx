@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 
 import { DEMO_EMAILS } from "@/lib/demo-emails";
 import { EMAIL_CATEGORY_LABELS } from "@/lib/email-categories";
+import { SignOutButton } from "@/components/sign-out-button";
 import {
   EMAIL_CATEGORIES,
   type ClassifyEmailResponse,
@@ -97,7 +98,14 @@ function CategoryBadge({ category }: { category: EmailCategory }) {
   );
 }
 
-export function EmailSortingDashboard() {
+type EmailSortingDashboardProps = {
+  user: {
+    name?: string | null;
+    email?: string | null;
+  };
+};
+
+export function EmailSortingDashboard({ user }: EmailSortingDashboardProps) {
   const [emails, setEmails] = useState<OrganizerEmail[]>(DEMO_EMAILS);
   const [selectedEmailId, setSelectedEmailId] = useState(DEMO_EMAILS[0].id);
   const [activeCategory, setActiveCategory] =
@@ -150,6 +158,12 @@ export function EmailSortingDashboard() {
 
   const unreadCount = emails.filter((email) => !email.isRead).length;
   const starredCount = emails.filter((email) => email.isStarred).length;
+  const displayName = user.name?.trim() || user.email?.split("@")[0] || "Utilisateur";
+  const profileInitials = displayName
+    .split(" ")
+    .slice(0, 2)
+    .map((part) => part[0]?.toLocaleUpperCase("fr-FR"))
+    .join("");
 
   function selectEmail(emailId: string) {
     setSelectedEmailId(emailId);
@@ -260,11 +274,22 @@ export function EmailSortingDashboard() {
               <span className="size-2 rounded-full bg-amber-500" />
               Mode démonstration
             </span>
+            <SignOutButton />
+            <div className="hidden min-w-0 text-right md:block">
+              <p className="max-w-40 truncate text-sm font-semibold text-[#252b37]">
+                {displayName}
+              </p>
+              {user.email && (
+                <p className="max-w-40 truncate text-xs text-[#7b8494]">
+                  {user.email}
+                </p>
+              )}
+            </div>
             <div
-              aria-label="Profil de Sacha"
+              aria-label={`Profil de ${displayName}`}
               className="flex size-10 items-center justify-center rounded-full bg-[#eee8d6] text-sm font-bold text-[#5e4a0b]"
             >
-              S
+              {profileInitials || "U"}
             </div>
           </div>
         </div>

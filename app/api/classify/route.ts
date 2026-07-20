@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { groq } from "@/lib/groq";
+import { requireApiSession } from "@/lib/require-api-session";
 import {
   EMAIL_CATEGORIES,
   type ClassifyEmailRequest,
@@ -58,6 +59,12 @@ function isEmailClassification(value: unknown): value is EmailClassification {
  * Le corps de la requête est validé avant tout appel payant à Groq.
  */
 export async function POST(request: Request) {
+  const authenticationError = await requireApiSession();
+
+  if (authenticationError) {
+    return authenticationError;
+  }
+
   const requestBody: unknown = await request.json().catch(() => null);
 
   if (!isClassifyEmailRequest(requestBody)) {

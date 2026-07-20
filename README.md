@@ -1,36 +1,65 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Email Organizer AI
 
-## Getting Started
+Prototype SaaS Next.js qui prépare l'organisation d'une boîte Gmail avec Groq.
 
-First, run the development server:
+## Fonctionnalités actuelles
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+- tableau de bord responsive avec emails fictifs ;
+- recherche, catégories et tri manuel ;
+- classification d'un email avec Groq ;
+- connexion sécurisée avec Google OAuth via Auth.js ;
+- session utilisateur de 30 jours ;
+- protection des routes qui appellent Groq.
+
+La récupération des vrais emails et la synchronisation en arrière-plan ne sont
+pas encore actives. Elles nécessiteront PostgreSQL, Prisma et le stockage chiffré
+des refresh tokens Google.
+
+## Variables d'environnement
+
+Copier `.env.example` vers `.env.local`, puis renseigner :
+
+```env
+GROQ_API_KEY=
+AUTH_SECRET=
+AUTH_GOOGLE_ID=
+AUTH_GOOGLE_SECRET=
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Ne jamais ajouter `.env.local` à Git.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Configuration OAuth Google
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Activer Gmail API dans Google Cloud, puis créer un client OAuth de type
+**Application Web**.
 
-## Learn More
+URI de redirection locale :
 
-To learn more about Next.js, take a look at the following resources:
+```text
+http://localhost:3000/api/auth/callback/google
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+URI de redirection Vercel :
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```text
+https://VOTRE-DOMAINE-VERCEL/api/auth/callback/google
+```
 
-## Deploy on Vercel
+Le projet demande le scope `gmail.modify` pour pouvoir, à terme, lire les emails
+et appliquer des libellés Gmail. En mode Testing, le compte utilisé doit être
+ajouté aux utilisateurs de test dans Google Auth Platform.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Développement
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+npm install
+npm run dev
+```
+
+Ouvrir [http://localhost:3000](http://localhost:3000).
+
+## Routes principales
+
+- `GET /api/auth/*` : flux OAuth géré par Auth.js ;
+- `GET /api/test` : vérifie Groq pour un utilisateur connecté ;
+- `POST /api/classify` : classe un email fictif pour un utilisateur connecté.
