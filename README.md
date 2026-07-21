@@ -1,30 +1,53 @@
 # Email Organizer AI
 
-Version personnelle de démonstration d'un organisateur d'emails avec Groq.
+Pilote personnel de messagerie construit avec Next.js et Groq. Cette version
+utilise exclusivement des emails fictifs et ne se connecte à aucun fournisseur
+de messagerie.
 
-## Fonctionnalités actuelles
+## Fonctionnalités
 
-- tableau de bord responsive avec emails fictifs ;
-- recherche, filtres, catégories et tri manuel ;
-- classification d'un email avec Groq ;
-- réinitialisation instantanée des données de démonstration ;
-- aucune connexion Google et aucun accès à une boîte Gmail réelle.
+- boîte de réception, favoris, messages envoyés, brouillons, archives et
+  corbeille ;
+- recherche, filtres, catégories et tri des messages ;
+- rédaction d'un nouveau message avec Cc et Cci ;
+- réponse et transfert avec préremplissage du message ;
+- génération d'un brouillon de réponse avec Groq ;
+- classification d'un email fictif avec Groq ;
+- archivage, restauration, suppression, favoris et état lu/non lu ;
+- sauvegarde automatique des changements dans le `localStorage` du navigateur ;
+- réinitialisation complète de la démonstration ;
+- interface responsive et accessible au clavier.
 
-Toutes les adresses utilisent le domaine réservé `.example`. Les modifications
-effectuées dans l'interface restent dans le navigateur et sont perdues au
-rechargement de la page.
+Les envois sont simulés : le message apparaît dans le dossier **Envoyés**, mais
+aucun email réel ne quitte l'application. Toutes les adresses utilisent le
+domaine réservé `.example`.
 
-## Variables d'environnement
+## Architecture
 
-Copier `.env.example` vers `.env.local`, puis renseigner :
+- `app/api/classify` valide puis classe un email de démonstration avec Groq ;
+- `app/api/draft-reply` génère un brouillon de réponse à partir d'un email
+  fictif ;
+- `components/email-sorting-dashboard.tsx` orchestre l'interface de messagerie ;
+- `components/email-composer.tsx` gère la rédaction, les brouillons et
+  l'assistance IA ;
+- `hooks/use-demo-mailbox.ts` charge et persiste la boîte fictive localement ;
+- `lib/demo-emails.ts` contient le jeu de données de démonstration ;
+- `lib/groq.ts` centralise l'unique client Groq côté serveur ;
+- `types/email.ts` définit les contrats TypeScript partagés.
+
+Les routes IA n'acceptent que les identifiants du jeu de démonstration. Le
+contenu arbitraire d'un visiteur ne peut donc pas être utilisé pour appeler
+librement Groq.
+
+## Installation
+
+Créer `.env.local` à la racine :
 
 ```env
-GROQ_API_KEY=
+GROQ_API_KEY=votre_cle_groq
 ```
 
-Ne jamais ajouter `.env.local` à Git.
-
-## Développement
+Puis lancer :
 
 ```bash
 npm install
@@ -33,10 +56,18 @@ npm run dev
 
 Ouvrir [http://localhost:3000](http://localhost:3000).
 
-## Routes principales
+## Déploiement Vercel
 
-- `GET /api/test` : vérifie la connexion du serveur à Groq ;
-- `POST /api/classify` : classe un email fictif avec Groq.
-
-La clé Groq reste exclusivement sur le serveur. Elle n'est jamais envoyée au
+Ajouter uniquement `GROQ_API_KEY` dans les variables d'environnement Vercel.
+La clé reste sur le serveur et n'est jamais incluse dans le JavaScript envoyé au
 navigateur.
+
+## Limites de cette version
+
+Cette démonstration ne peut pas lire ou modifier une vraie boîte Gmail, envoyer
+un vrai message, recevoir de nouveaux emails ou synchroniser plusieurs appareils.
+Ces fonctions nécessitent une autorisation officielle du fournisseur de
+messagerie, une base de données et une authentification utilisateur.
+
+Le plan technique et les interventions nécessaires sont détaillés dans
+[`docs/PRODUCTION-ROADMAP.md`](docs/PRODUCTION-ROADMAP.md).

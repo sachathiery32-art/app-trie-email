@@ -10,31 +10,68 @@ export const EMAIL_CATEGORIES = [
   "other",
 ] as const;
 
-export type EmailCategory = (typeof EMAIL_CATEGORIES)[number];
+export const MAILBOX_FOLDERS = [
+  "inbox",
+  "sent",
+  "drafts",
+  "archive",
+  "trash",
+] as const;
 
-export type ClassifyEmailRequest = {
+export const REPLY_TONES = ["concise", "professional", "friendly"] as const;
+
+export type EmailCategory = (typeof EMAIL_CATEGORIES)[number];
+export type MailboxFolder = (typeof MAILBOX_FOLDERS)[number];
+export type MailboxView = MailboxFolder | "starred";
+export type ReplyTone = (typeof REPLY_TONES)[number];
+export type ComposerMode = "compose" | "reply" | "forward" | "draft";
+
+export type EmailContent = {
   sender: string;
   subject: string;
   body: string;
 };
 
+export type OrganizerEmail = EmailContent & {
+  id: string;
+  senderName: string;
+  recipients: string[];
+  cc: string[];
+  bcc: string[];
+  preview: string;
+  receivedAt: string;
+  timestamp: number;
+  category: EmailCategory;
+  folder: MailboxFolder;
+  direction: "incoming" | "outgoing";
+  isRead: boolean;
+  isStarred: boolean;
+  sourceEmailId?: string;
+};
+
+export type ComposerSession = {
+  mode: ComposerMode;
+  draftId?: string;
+  sourceEmailId?: string;
+  to: string;
+  cc: string;
+  bcc: string;
+  subject: string;
+  body: string;
+};
+
+export type ComposerMessage = Pick<
+  ComposerSession,
+  "to" | "cc" | "bcc" | "subject" | "body"
+>;
+
+export type ClassifyEmailRequest = {
+  emailId: string;
+};
+
 export type EmailClassification = {
   category: EmailCategory;
   reason: string;
-};
-
-/**
- * Représentation minimale d'un email dans l'interface de tri.
- * Cette forme pourra plus tard être alimentée par Gmail et la base de données.
- */
-export type OrganizerEmail = ClassifyEmailRequest & {
-  id: string;
-  senderName: string;
-  preview: string;
-  receivedAt: string;
-  category: EmailCategory;
-  isRead: boolean;
-  isStarred: boolean;
 };
 
 export type ClassifyEmailSuccessResponse = {
@@ -47,3 +84,20 @@ export type ClassifyEmailSuccessResponse = {
 export type ClassifyEmailResponse =
   | ClassifyEmailSuccessResponse
   | ApiErrorResponse;
+
+export type DraftReplyRequest = {
+  emailId: string;
+  tone: ReplyTone;
+  instruction: string;
+};
+
+export type DraftReplySuccessResponse = {
+  success: true;
+  data: {
+    subject: string;
+    body: string;
+    model: string;
+  };
+};
+
+export type DraftReplyResponse = DraftReplySuccessResponse | ApiErrorResponse;

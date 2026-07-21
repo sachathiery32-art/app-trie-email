@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { findDemoEmail } from "@/lib/demo-emails";
 import { groq } from "@/lib/groq";
 import {
   EMAIL_CATEGORIES,
@@ -8,31 +9,17 @@ import {
   type EmailClassification,
 } from "@/types/email";
 
-const MAX_SENDER_LENGTH = 320;
-const MAX_SUBJECT_LENGTH = 500;
-const MAX_BODY_LENGTH = 20_000;
-
-function isNonEmptyString(value: unknown, maxLength: number): value is string {
-  return (
-    typeof value === "string" &&
-    value.trim().length > 0 &&
-    value.length <= maxLength
-  );
-}
-
 /** Valide les données externes avant de les transmettre au modèle. */
 function isClassifyEmailRequest(value: unknown): value is ClassifyEmailRequest {
   if (typeof value !== "object" || value === null) {
     return false;
   }
 
-  const email = value as Record<string, unknown>;
+  const requestBody = value as Record<string, unknown>;
 
   return (
-    isNonEmptyString(email.sender, MAX_SENDER_LENGTH) &&
-    typeof email.subject === "string" &&
-    email.subject.length <= MAX_SUBJECT_LENGTH &&
-    isNonEmptyString(email.body, MAX_BODY_LENGTH)
+    typeof requestBody.emailId === "string" &&
+    requestBody.emailId.length <= 100
   );
 }
 
@@ -64,10 +51,21 @@ export async function POST(request: Request) {
     return NextResponse.json<ClassifyEmailResponse>(
       {
         success: false,
-        error:
-          "Données invalides : sender et body sont requis, et les longueurs doivent rester autorisées.",
+        error: "La demande de classification est invalide.",
       },
       { status: 400 },
+    );
+  }
+
+  const demoEmail = findDemoEmail(requestBody.emailId);
+
+  if (!demoEmail) {
+    return NextResponse.json<ClassifyEmailResponse>(
+      {
+        success: false,
+        error: "Seuls les emails fictifs fournis peuvent être analysés.",
+      },
+      { status: 404 },
     );
   }
 
@@ -87,9 +85,9 @@ export async function POST(request: Request) {
         {
           role: "user",
           content: JSON.stringify({
-            sender: requestBody.sender.trim(),
-            subject: requestBody.subject.trim(),
-            body: requestBody.body.trim(),
+            sender: demoEmail.sender,
+            subject: demoEmail.subject,
+            body: demoEmail.body,
           }),
         },
       ],
