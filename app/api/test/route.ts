@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 
 import { groq } from "@/lib/groq";
-import { requireApiSession } from "@/lib/require-api-session";
 import type { GroqTestResponse } from "@/types/groq";
 
 /**
@@ -9,12 +8,6 @@ import type { GroqTestResponse } from "@/types/groq";
  * Le navigateur appelle cette route, mais seul le serveur communique avec Groq.
  */
 export async function GET() {
-  const authenticationError = await requireApiSession();
-
-  if (authenticationError) {
-    return authenticationError;
-  }
-
   try {
     const completion = await groq.chat.completions.create({
       model: "openai/gpt-oss-20b",

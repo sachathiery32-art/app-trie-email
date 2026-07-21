@@ -4,7 +4,6 @@ import { useMemo, useState } from "react";
 
 import { DEMO_EMAILS } from "@/lib/demo-emails";
 import { EMAIL_CATEGORY_LABELS } from "@/lib/email-categories";
-import { SignOutButton } from "@/components/sign-out-button";
 import {
   EMAIL_CATEGORIES,
   type ClassifyEmailResponse,
@@ -98,14 +97,7 @@ function CategoryBadge({ category }: { category: EmailCategory }) {
   );
 }
 
-type EmailSortingDashboardProps = {
-  user: {
-    name?: string | null;
-    email?: string | null;
-  };
-};
-
-export function EmailSortingDashboard({ user }: EmailSortingDashboardProps) {
+export function EmailSortingDashboard() {
   const [emails, setEmails] = useState<OrganizerEmail[]>(DEMO_EMAILS);
   const [selectedEmailId, setSelectedEmailId] = useState(DEMO_EMAILS[0].id);
   const [activeCategory, setActiveCategory] =
@@ -158,12 +150,6 @@ export function EmailSortingDashboard({ user }: EmailSortingDashboardProps) {
 
   const unreadCount = emails.filter((email) => !email.isRead).length;
   const starredCount = emails.filter((email) => email.isStarred).length;
-  const displayName = user.name?.trim() || user.email?.split("@")[0] || "Utilisateur";
-  const profileInitials = displayName
-    .split(" ")
-    .slice(0, 2)
-    .map((part) => part[0]?.toLocaleUpperCase("fr-FR"))
-    .join("");
 
   function selectEmail(emailId: string) {
     setSelectedEmailId(emailId);
@@ -185,6 +171,15 @@ export function EmailSortingDashboard({ user }: EmailSortingDashboardProps) {
         email.id === selectedEmail.id ? { ...email, ...changes } : email,
       ),
     );
+  }
+
+  function resetDemo() {
+    setEmails(DEMO_EMAILS);
+    setSelectedEmailId(DEMO_EMAILS[0].id);
+    setActiveCategory("all");
+    setSearchQuery("");
+    setSortMode("recent");
+    setAnalysisState({ status: "idle" });
   }
 
   async function analyzeSelectedEmail() {
@@ -274,23 +269,13 @@ export function EmailSortingDashboard({ user }: EmailSortingDashboardProps) {
               <span className="size-2 rounded-full bg-amber-500" />
               Mode démonstration
             </span>
-            <SignOutButton />
-            <div className="hidden min-w-0 text-right md:block">
-              <p className="max-w-40 truncate text-sm font-semibold text-[#252b37]">
-                {displayName}
-              </p>
-              {user.email && (
-                <p className="max-w-40 truncate text-xs text-[#7b8494]">
-                  {user.email}
-                </p>
-              )}
-            </div>
-            <div
-              aria-label={`Profil de ${displayName}`}
-              className="flex size-10 items-center justify-center rounded-full bg-[#eee8d6] text-sm font-bold text-[#5e4a0b]"
+            <button
+              type="button"
+              onClick={resetDemo}
+              className="inline-flex min-h-11 cursor-pointer items-center justify-center rounded-xl border border-[#d9dce2] bg-white px-3 text-sm font-semibold text-[#4d5768] transition-colors duration-200 hover:border-[#aeb4bf] hover:bg-[#f7f7f8] hover:text-[#171717] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#171717]"
             >
-              {profileInitials || "U"}
-            </div>
+              Réinitialiser
+            </button>
           </div>
         </div>
       </header>
@@ -361,8 +346,8 @@ export function EmailSortingDashboard({ user }: EmailSortingDashboardProps) {
               Données fictives
             </p>
             <p className="mt-1 text-xs leading-5 text-[#667085]">
-              Gmail sera connecté dans une prochaine étape. Aucun email réel
-              n’est affiché ici.
+              Cette version personnelle utilise uniquement des exemples. Aucun
+              compte Gmail ni mot de passe n’est nécessaire.
             </p>
           </div>
         </aside>
@@ -381,8 +366,8 @@ export function EmailSortingDashboard({ user }: EmailSortingDashboardProps) {
                   Votre boîte, enfin organisée.
                 </h1>
                 <p className="mt-3 max-w-2xl text-sm leading-6 text-[#667085] sm:text-base">
-                  Recherchez, filtrez et classez des emails de démonstration avec
-                  Groq avant la future connexion à Gmail.
+                  Recherchez, filtrez et classez des emails fictifs avec Groq,
+                  directement dans votre espace de démonstration.
                 </p>
               </div>
               <button
