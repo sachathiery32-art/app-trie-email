@@ -91,7 +91,13 @@ export type DraftReplyRequest = {
   instruction: string;
 };
 
-export type DraftReplySuccessResponse = {
+export type DraftMessageRequest = {
+  recipient: string;
+  tone: ReplyTone;
+  instruction: string;
+};
+
+export type GeneratedDraftSuccessResponse = {
   success: true;
   data: {
     subject: string;
@@ -100,4 +106,10 @@ export type DraftReplySuccessResponse = {
   };
 };
 
-export type DraftReplyResponse = DraftReplySuccessResponse | ApiErrorResponse;
+export type DraftReplyResponse =
+  | GeneratedDraftSuccessResponse
+  | ApiErrorResponse;
+
+export type DraftMessageResponse =
+  | GeneratedDraftSuccessResponse
+  | ApiErrorResponse;

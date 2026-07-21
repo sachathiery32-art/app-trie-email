@@ -10,6 +10,7 @@ de messagerie.
   corbeille ;
 - recherche, filtres, catégories et tri des messages ;
 - rédaction d'un nouveau message avec Cc et Cci ;
+- génération de l'objet et du contenu d'un nouveau message avec Groq ;
 - réponse et transfert avec préremplissage du message ;
 - génération d'un brouillon de réponse avec Groq ;
 - classification d'un email fictif avec Groq ;
@@ -27,17 +28,20 @@ domaine réservé `.example`.
 - `app/api/classify` valide puis classe un email de démonstration avec Groq ;
 - `app/api/draft-reply` génère un brouillon de réponse à partir d'un email
   fictif ;
+- `app/api/draft-message` génère un nouveau message à partir d'une consigne ;
 - `components/email-sorting-dashboard.tsx` orchestre l'interface de messagerie ;
 - `components/email-composer.tsx` gère la rédaction, les brouillons et
   l'assistance IA ;
 - `hooks/use-demo-mailbox.ts` charge et persiste la boîte fictive localement ;
 - `lib/demo-emails.ts` contient le jeu de données de démonstration ;
 - `lib/groq.ts` centralise l'unique client Groq côté serveur ;
+- `lib/ai-rate-limit.ts` limite les appels IA par adresse réseau ;
 - `types/email.ts` définit les contrats TypeScript partagés.
 
-Les routes IA n'acceptent que les identifiants du jeu de démonstration. Le
-contenu arbitraire d'un visiteur ne peut donc pas être utilisé pour appeler
-librement Groq.
+La classification et la réponse IA n'acceptent que les identifiants du jeu de
+démonstration. La rédaction libre valide strictement les longueurs et toutes les
+routes IA appliquent une limitation légère du nombre de requêtes. Une production
+multi-instance devra remplacer cette limite locale par un stockage partagé.
 
 ## Installation
 

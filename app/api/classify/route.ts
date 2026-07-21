@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { checkAiRateLimit } from "@/lib/ai-rate-limit";
 import { findDemoEmail } from "@/lib/demo-emails";
 import { groq } from "@/lib/groq";
 import {
@@ -45,6 +46,21 @@ function isEmailClassification(value: unknown): value is EmailClassification {
  * Le corps de la requête est validé avant tout appel payant à Groq.
  */
 export async function POST(request: Request) {
+  const rateLimit = checkAiRateLimit(request);
+
+  if (!rateLimit.allowed) {
+    return NextResponse.json<ClassifyEmailResponse>(
+      {
+        success: false,
+        error: "Trop de demandes IA. Réessayez dans quelques minutes.",
+      },
+      {
+        status: 429,
+        headers: { "Retry-After": String(rateLimit.retryAfterSeconds) },
+      },
+    );
+  }
+
   const requestBody: unknown = await request.json().catch(() => null);
 
   if (!isClassifyEmailRequest(requestBody)) {

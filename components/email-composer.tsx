@@ -6,6 +6,8 @@ import { MailboxIcon } from "@/components/mailbox-icon";
 import type {
   ComposerMessage,
   ComposerSession,
+  DraftMessageRequest,
+  DraftMessageResponse,
   DraftReplyRequest,
   DraftReplyResponse,
   ReplyTone,
@@ -49,7 +51,9 @@ export function EmailComposer({
   );
   const [tone, setTone] = useState<ReplyTone>("professional");
   const [instruction, setInstruction] = useState(
-    "Réponds clairement et confirme les prochaines étapes.",
+    session.mode === "compose"
+      ? "Rédige un message clair pour présenter ma demande."
+      : "Réponds clairement et confirme les prochaines étapes.",
   );
   const [aiState, setAiState] = useState<
     | { status: "idle" }
@@ -88,26 +92,39 @@ export function EmailComposer({
     onSend(message);
   }
 
-  async function generateReply() {
-    if (!session.sourceEmailId) {
+  async function generateWithAi() {
+    const sourceEmailId = session.sourceEmailId;
+    const isReply = session.mode === "reply" && Boolean(sourceEmailId);
+    const isNewMessage = session.mode === "compose";
+
+    if (!isReply && !isNewMessage) {
       return;
     }
 
     setAiState({ status: "loading" });
 
-    const requestBody: DraftReplyRequest = {
-      emailId: session.sourceEmailId,
-      tone,
-      instruction,
-    };
+    const endpoint = isReply ? "/api/draft-reply" : "/api/draft-message";
+    const requestBody: DraftReplyRequest | DraftMessageRequest = isReply
+      ? {
+          emailId: sourceEmailId ?? "",
+          tone,
+          instruction,
+        }
+      : {
+          recipient: message.to,
+          tone,
+          instruction,
+        };
 
     try {
-      const response = await fetch("/api/draft-reply", {
+      const response = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestBody),
       });
-      const payload = (await response.json()) as DraftReplyResponse;
+      const payload = (await response.json()) as
+        | DraftReplyResponse
+        | DraftMessageResponse;
 
       if (!response.ok || !payload.success) {
         throw new Error(
@@ -129,7 +146,7 @@ export function EmailComposer({
         message:
           error instanceof Error
             ? error.message
-            : "Impossible de générer la réponse.",
+            : "Impossible de générer le message.",
       });
     }
   }
@@ -259,9 +276,10 @@ export function EmailComposer({
                 />
               </div>
 
-              {session.mode === "reply" && session.sourceEmailId && (
+              {(session.mode === "compose" ||
+                (session.mode === "reply" && session.sourceEmailId)) && (
                 <section
-                  aria-labelledby="ai-reply-title"
+                  aria-labelledby="ai-writing-title"
                   className="rounded-2xl border border-[#e0d5ac] bg-[#fffaf0] p-4"
                 >
                   <div className="flex items-start gap-3">
@@ -270,27 +288,30 @@ export function EmailComposer({
                     </div>
                     <div className="min-w-0 flex-1">
                       <h3
-                        id="ai-reply-title"
+                        id="ai-writing-title"
                         className="font-semibold text-[#332a0d]"
                       >
-                        Proposition de réponse Groq
+                        {session.mode === "compose"
+                          ? "Assistant de rédaction Groq"
+                          : "Proposition de réponse Groq"}
                       </h3>
                       <p className="mt-1 text-sm leading-6 text-[#6d5c28]">
-                        Décrivez l’objectif : Groq préparera un brouillon que
-                        vous pourrez modifier avant l’envoi simulé.
+                        {session.mode === "compose"
+                          ? "Décrivez le message souhaité : Groq préparera l’objet et le contenu."
+                          : "Décrivez l’objectif : Groq préparera un brouillon que vous pourrez modifier."}
                       </p>
                     </div>
                   </div>
                   <div className="mt-4 grid gap-3 sm:grid-cols-[160px_minmax(0,1fr)]">
                     <div>
                       <label
-                        htmlFor="reply-tone"
+                        htmlFor="writing-tone"
                         className="text-xs font-semibold text-[#5f4d17]"
                       >
                         Ton
                       </label>
                       <select
-                        id="reply-tone"
+                        id="writing-tone"
                         value={tone}
                         onChange={(event) =>
                           setTone(event.target.value as ReplyTone)
@@ -306,13 +327,13 @@ export function EmailComposer({
                     </div>
                     <div>
                       <label
-                        htmlFor="reply-instruction"
+                        htmlFor="writing-instruction"
                         className="text-xs font-semibold text-[#5f4d17]"
                       >
                         Consigne
                       </label>
                       <input
-                        id="reply-instruction"
+                        id="writing-instruction"
                         value={instruction}
                         maxLength={500}
                         onChange={(event) => setInstruction(event.target.value)}
@@ -330,23 +351,27 @@ export function EmailComposer({
                       }`}
                     >
                       {aiState.status === "idle" &&
-                        "Le contenu utilisé est entièrement fictif."}
+                        (session.mode === "compose"
+                          ? "Indiquez ce que vous voulez communiquer, sans données sensibles."
+                          : "Le contenu utilisé est entièrement fictif.")}
                       {aiState.status === "loading" &&
                         "Génération du brouillon en cours…"}
                       {aiState.status === "success" &&
-                        `Brouillon généré avec ${aiState.model}.`}
+                        `Message généré avec ${aiState.model}.`}
                       {aiState.status === "error" && aiState.message}
                     </p>
                     <button
                       type="button"
-                      onClick={generateReply}
+                      onClick={generateWithAi}
                       disabled={aiState.status === "loading"}
                       className="inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-xl bg-[#171717] px-4 text-sm font-semibold text-white transition-colors duration-200 hover:bg-[#333] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#171717] disabled:cursor-not-allowed disabled:bg-[#9da3ae]"
                     >
                       <MailboxIcon name="sparkles" className="size-4" />
                       {aiState.status === "loading"
                         ? "Génération…"
-                        : "Générer la réponse"}
+                        : session.mode === "compose"
+                          ? "Rédiger avec Groq"
+                          : "Générer la réponse"}
                     </button>
                   </div>
                 </section>
