@@ -1,5 +1,5 @@
 import { auth } from "@/auth";
-import { EmailSortingDashboard } from "@/components/email-sorting-dashboard";
+import { GmailInbox } from "@/components/gmail-inbox";
 import { GoogleSignIn } from "@/components/google-sign-in";
 
 type HomePageProps = {
@@ -19,7 +19,7 @@ export default async function Home({ searchParams }: HomePageProps) {
   }
 
   return (
-    <EmailSortingDashboard
+    <GmailInbox
       user={{
         name: session.user.name,
         email: session.user.email,

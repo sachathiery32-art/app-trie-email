@@ -1,28 +1,22 @@
 # Email Organizer AI
 
 Pilote personnel de messagerie construit avec Next.js, Auth.js et Groq. La
-connexion Google est réelle et limitée à une adresse autorisée, mais les emails
-affichés restent fictifs pour valider chaque étape séparément.
+connexion Google est réelle, limitée à une adresse autorisée et affiche les 20
+messages les plus récents de la boîte de réception Gmail en lecture seule.
 
 ## Fonctionnalités
 
-- boîte de réception, favoris, messages envoyés, brouillons, archives et
-  corbeille ;
-- recherche, filtres, catégories et tri des messages ;
-- rédaction d'un nouveau message avec Cc et Cci ;
-- génération de l'objet et du contenu d'un nouveau message avec Groq ;
-- réponse et transfert avec préremplissage du message ;
-- génération d'un brouillon de réponse avec Groq ;
-- classification d'un email fictif avec Groq ;
-- archivage, restauration, suppression, favoris et état lu/non lu ;
-- sauvegarde automatique des changements dans le `localStorage` du navigateur ;
 - connexion Google OAuth avec liste blanche côté serveur ;
-- réinitialisation complète de la démonstration ;
+- conservation chiffrée des jetons OAuth dans un cookie `HttpOnly` ;
+- renouvellement automatique du jeton d'accès Google ;
+- chargement réel des 20 derniers messages de la boîte de réception ;
+- affichage du compte, des compteurs Gmail, des états lu/non lu et des favoris ;
+- sélection d'un message et aperçu de ses métadonnées ;
+- actualisation manuelle sans modifier la boîte Gmail ;
 - interface responsive et accessible au clavier.
 
-Les envois sont simulés : le message apparaît dans le dossier **Envoyés**, mais
-aucun email réel ne quitte l'application. Toutes les adresses utilisent le
-domaine réservé `.example`.
+L'ancienne interface de démonstration et les routes Groq sont conservées dans le
+code pour les prochaines étapes, mais l'accueil utilise désormais Gmail réel.
 
 ## Architecture
 
@@ -31,8 +25,13 @@ domaine réservé `.example`.
   fictif ;
 - `app/api/draft-message` génère un nouveau message à partir d'une consigne ;
 - `app/api/auth/[...nextauth]` reçoit les requêtes OAuth et le callback Google ;
-- `auth.ts` centralise le fournisseur Google et la liste blanche ;
-- `components/email-sorting-dashboard.tsx` orchestre l'interface de messagerie ;
+- `app/api/gmail/inbox` retourne la première page Gmail en lecture seule ;
+- `auth.ts` centralise le fournisseur Google, la liste blanche et les jetons ;
+- `components/gmail-inbox.tsx` affiche la boîte Gmail réelle ;
+- `lib/google-oauth.ts` renouvelle le jeton d'accès sans exposer les secrets ;
+- `lib/google-session.ts` déchiffre et contrôle la session côté serveur ;
+- `lib/gmail.ts` centralise les appels et la normalisation Gmail ;
+- `components/email-sorting-dashboard.tsx` conserve l'interface de démonstration ;
 - `components/email-composer.tsx` gère la rédaction, les brouillons et
   l'assistance IA ;
 - `hooks/use-demo-mailbox.ts` charge et persiste la boîte fictive localement ;
@@ -75,9 +74,10 @@ JavaScript envoyé au navigateur.
 
 ## Limites de cette version
 
-Cette étape valide uniquement l'identité Google. Elle ne peut pas encore lire ou
-modifier la boîte Gmail, envoyer un vrai message ou recevoir de nouveaux emails.
-Ces actions seront branchées une par une après le test de connexion.
+Cette étape lit Gmail mais ne récupère encore qu'une page de 20 messages et un
+aperçu fourni par Gmail. Elle ne modifie aucun message et ne permet pas encore
+d'envoyer, répondre, transférer, classer ou synchroniser la boîte en arrière-plan.
+Ces actions seront branchées une par une après validation de la lecture réelle.
 
 Le plan technique et les interventions nécessaires sont détaillés dans
 [`docs/PRODUCTION-ROADMAP.md`](docs/PRODUCTION-ROADMAP.md).
