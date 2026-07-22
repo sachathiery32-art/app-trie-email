@@ -9,13 +9,16 @@ import {
 } from "react";
 
 import { signInWithGoogle, signOutFromApp } from "@/app/actions/auth";
+import { EmailComposer } from "@/components/email-composer";
 import { MailboxIcon } from "@/components/mailbox-icon";
+import type { ComposerMessage } from "@/types/email";
 import type {
   GmailInboxData,
   GmailInboxResponse,
   GmailMessageDetail,
   GmailMessageResponse,
   GmailMessageSummary,
+  GmailSendResponse,
 } from "@/types/gmail";
 
 type AuthenticatedUser = {
@@ -296,6 +299,8 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
   });
   const [pageIndex, setPageIndex] = useState(0);
   const [pageTokens, setPageTokens] = useState<Array<string | null>>([null]);
+  const [isComposerOpen, setIsComposerOpen] = useState(false);
+  const [sendNotice, setSendNotice] = useState<string | null>(null);
   const detailCache = useRef(new Map<string, GmailMessageDetail>());
 
   const loadInbox = useCallback(
@@ -443,6 +448,30 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
     void loadInbox(pageTokens[pageIndex] ?? null);
   }, [isLoading, loadInbox, pageIndex, pageTokens]);
 
+  const sendMessage = useCallback(async (message: ComposerMessage) => {
+    const response = await fetch("/api/gmail/send", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(message),
+    });
+    const payload = (await response
+      .json()
+      .catch(() => null)) as GmailSendResponse | null;
+
+    if (!payload || !response.ok || !payload.success) {
+      throw new Error(
+        payload && !payload.success
+          ? payload.error
+          : "La réponse de Gmail est incomplète.",
+      );
+    }
+
+    setIsComposerOpen(false);
+    setSendNotice(
+      `Message envoyé avec succès à ${message.to}. Identifiant Gmail : ${payload.data.messageId}`,
+    );
+  }, []);
+
   return (
     <div className="min-h-screen bg-[#f4f4f5] text-[#18181b]">
       <a
@@ -502,16 +531,46 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
               Cette étape reste en lecture seule.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={refreshInbox}
-            disabled={isLoading}
-            className="inline-flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-xl bg-[#2563eb] px-5 text-sm font-semibold text-white transition-colors duration-200 hover:bg-[#1d4ed8] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#18181b] disabled:cursor-wait disabled:bg-[#93c5fd]"
-          >
-            <MailboxIcon name="refresh" className="size-4" />
-            {isLoading ? "Actualisation…" : "Actualiser Gmail"}
-          </button>
+          <div className="grid grid-cols-2 gap-2 sm:flex">
+            <button
+              type="button"
+              onClick={() => {
+                setSendNotice(null);
+                setIsComposerOpen(true);
+              }}
+              className="inline-flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-xl bg-[#2563eb] px-4 text-sm font-semibold text-white transition-colors duration-200 hover:bg-[#1d4ed8] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#18181b]"
+            >
+              <MailboxIcon name="compose" className="size-4" />
+              Nouveau message
+            </button>
+            <button
+              type="button"
+              onClick={refreshInbox}
+              disabled={isLoading}
+              className="inline-flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-xl border border-[#d4d4d8] bg-white px-4 text-sm font-semibold text-[#3f3f46] transition-colors duration-200 hover:bg-[#f4f4f5] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#18181b] disabled:cursor-wait disabled:opacity-60"
+            >
+              <MailboxIcon name="refresh" className="size-4" />
+              {isLoading ? "Actualisation…" : "Actualiser"}
+            </button>
+          </div>
         </div>
+
+        {sendNotice ? (
+          <section
+            aria-live="polite"
+            className="mt-6 flex items-start gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-950"
+          >
+            <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-emerald-700 text-white">
+              <MailboxIcon name="check" className="size-4" />
+            </div>
+            <div>
+              <p className="font-semibold">Email remis à Gmail</p>
+              <p className="mt-1 break-words text-sm leading-6">
+                {sendNotice}
+              </p>
+            </div>
+          </section>
+        ) : null}
 
         {state.status === "error" ? (
           <section
@@ -670,6 +729,23 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
           ) : null}
         </section>
       </main>
+
+      {isComposerOpen ? (
+        <EmailComposer
+          deliveryMode="gmail"
+          senderEmail={user.email}
+          session={{
+            mode: "compose",
+            to: "",
+            cc: "",
+            bcc: "",
+            subject: "",
+            body: "",
+          }}
+          onClose={() => setIsComposerOpen(false)}
+          onSend={sendMessage}
+        />
+      ) : null}
     </div>
   );
 }

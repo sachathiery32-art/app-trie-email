@@ -42,6 +42,7 @@ export type GmailApiErrorResponse = {
     | "UNAUTHENTICATED"
     | "FORBIDDEN"
     | "RECONNECT_REQUIRED"
+    | "VALIDATION_ERROR"
     | "GMAIL_ERROR";
   error: string;
 };
@@ -52,4 +53,22 @@ export type GmailInboxResponse =
 
 export type GmailMessageResponse =
   | { success: true; data: GmailMessageDetail }
+  | GmailApiErrorResponse;
+
+export type GmailSendRequest = {
+  to: string;
+  cc: string;
+  bcc: string;
+  subject: string;
+  body: string;
+};
+
+export type GmailSendResponse =
+  | {
+      success: true;
+      data: {
+        messageId: string;
+        threadId: string;
+      };
+    }
   | GmailApiErrorResponse;

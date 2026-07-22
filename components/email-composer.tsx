@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import { MailboxIcon } from "@/components/mailbox-icon";
 import type {
@@ -29,8 +29,10 @@ const TONE_LABELS: Record<ReplyTone, string> = {
 type EmailComposerProps = {
   session: ComposerSession;
   onClose: () => void;
-  onSaveDraft: (message: ComposerMessage) => void;
-  onSend: (message: ComposerMessage) => void;
+  onSaveDraft?: (message: ComposerMessage) => void;
+  onSend: (message: ComposerMessage) => void | Promise<void>;
+  deliveryMode?: "demo" | "gmail";
+  senderEmail?: string;
 };
 
 export function EmailComposer({
@@ -38,6 +40,8 @@ export function EmailComposer({
   onClose,
   onSaveDraft,
   onSend,
+  deliveryMode = "demo",
+  senderEmail,
 }: EmailComposerProps) {
   const [message, setMessage] = useState<ComposerMessage>({
     to: session.to,
@@ -61,13 +65,20 @@ export function EmailComposer({
     | { status: "success"; model: string }
     | { status: "error"; message: string }
   >({ status: "idle" });
+  const [sendState, setSendState] = useState<
+    | { status: "editing" }
+    | { status: "confirming" }
+    | { status: "sending" }
+    | { status: "error"; message: string }
+  >({ status: "editing" });
+  const sendInFlight = useRef(false);
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
 
     function closeOnEscape(event: KeyboardEvent) {
-      if (event.key === "Escape") {
+      if (event.key === "Escape" && sendState.status !== "sending") {
         onClose();
       }
     }
@@ -78,9 +89,12 @@ export function EmailComposer({
       document.body.style.overflow = previousOverflow;
       window.removeEventListener("keydown", closeOnEscape);
     };
-  }, [onClose]);
+  }, [onClose, sendState.status]);
 
   function updateField(field: keyof ComposerMessage, value: string) {
+    if (sendState.status !== "editing") {
+      setSendState({ status: "editing" });
+    }
     setMessage((currentMessage) => ({
       ...currentMessage,
       [field]: value,
@@ -89,7 +103,33 @@ export function EmailComposer({
 
   function submitMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    onSend(message);
+    if (deliveryMode === "gmail") {
+      setSendState({ status: "confirming" });
+      return;
+    }
+    void onSend(message);
+  }
+
+  async function confirmRealSend() {
+    if (sendInFlight.current) {
+      return;
+    }
+
+    sendInFlight.current = true;
+    setSendState({ status: "sending" });
+    try {
+      await onSend(message);
+    } catch (error) {
+      setSendState({
+        status: "error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Le message n'a pas pu être envoyé.",
+      });
+    } finally {
+      sendInFlight.current = false;
+    }
   }
 
   async function generateWithAi() {
@@ -162,7 +202,7 @@ export function EmailComposer({
         <header className="flex min-h-16 items-center justify-between border-b border-[#e3e6eb] px-4 sm:px-6">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#826408]">
-              Mode démonstration
+              {deliveryMode === "gmail" ? "Envoi Gmail réel" : "Mode démonstration"}
             </p>
             <h2
               id="composer-title"
@@ -174,8 +214,9 @@ export function EmailComposer({
           <button
             type="button"
             onClick={onClose}
+            disabled={sendState.status === "sending"}
             aria-label="Fermer la rédaction"
-            className="flex size-11 cursor-pointer items-center justify-center rounded-xl text-[#5f6979] transition-colors duration-200 hover:bg-[#f1f2f4] hover:text-[#171717] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#171717]"
+            className="flex size-11 cursor-pointer items-center justify-center rounded-xl text-[#5f6979] transition-colors duration-200 hover:bg-[#f1f2f4] hover:text-[#171717] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#171717] disabled:cursor-not-allowed disabled:opacity-50"
           >
             <MailboxIcon name="close" />
           </button>
@@ -403,25 +444,105 @@ export function EmailComposer({
             </div>
           </div>
 
+          {deliveryMode === "gmail" && sendState.status !== "editing" ? (
+            <section
+              aria-live="assertive"
+              className={`border-t px-4 py-4 sm:px-6 ${
+                sendState.status === "error"
+                  ? "border-red-200 bg-red-50"
+                  : "border-blue-200 bg-blue-50"
+              }`}
+            >
+              {sendState.status === "error" ? (
+                <>
+                  <p className="font-semibold text-red-900">Envoi interrompu</p>
+                  <p className="mt-1 text-sm leading-6 text-red-800">
+                    {sendState.message}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setSendState({ status: "editing" })}
+                    className="mt-3 inline-flex min-h-11 cursor-pointer items-center justify-center rounded-xl border border-red-300 bg-white px-4 text-sm font-semibold text-red-900 transition-colors duration-200 hover:bg-red-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-900"
+                  >
+                    Corriger le message
+                  </button>
+                </>
+              ) : (
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="font-semibold text-blue-950">
+                      {sendState.status === "sending"
+                        ? "Envoi Gmail en cours…"
+                        : "Confirmer l’envoi réel"}
+                    </p>
+                    <p className="mt-1 text-sm leading-6 text-blue-900">
+                      À <strong>{message.to}</strong> · Objet :{" "}
+                      <strong>{message.subject}</strong>
+                    </p>
+                    {message.cc || message.bcc ? (
+                      <p className="mt-1 text-xs leading-5 text-blue-800">
+                        {message.cc ? `Cc : ${message.cc}` : ""}
+                        {message.cc && message.bcc ? " · " : ""}
+                        {message.bcc ? `Cci : ${message.bcc}` : ""}
+                      </p>
+                    ) : null}
+                    <p className="mt-1 text-xs leading-5 text-blue-800">
+                      Après confirmation, Gmail remettra réellement ce message
+                      aux destinataires.
+                    </p>
+                  </div>
+                  <div className="grid shrink-0 grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setSendState({ status: "editing" })}
+                      disabled={sendState.status === "sending"}
+                      className="inline-flex min-h-11 cursor-pointer items-center justify-center rounded-xl border border-blue-300 bg-white px-4 text-sm font-semibold text-blue-900 transition-colors duration-200 hover:bg-blue-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-900 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Retour
+                    </button>
+                    <button
+                      type="button"
+                      onClick={confirmRealSend}
+                      disabled={sendState.status === "sending"}
+                      className="inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-xl bg-[#2563eb] px-4 text-sm font-semibold text-white transition-colors duration-200 hover:bg-[#1d4ed8] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#18181b] disabled:cursor-wait disabled:bg-[#93c5fd]"
+                    >
+                      <MailboxIcon name="send" className="size-4" />
+                      {sendState.status === "sending"
+                        ? "Envoi…"
+                        : "Envoyer maintenant"}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </section>
+          ) : null}
+
           <footer className="flex flex-col-reverse gap-3 border-t border-[#e3e6eb] bg-[#fafafa] p-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
             <p className="text-center text-xs leading-5 text-[#667085] sm:text-left">
-              Aucun email réel ne sera envoyé dans cette version.
+              {deliveryMode === "gmail"
+                ? `Envoi depuis ${senderEmail || "le compte Gmail connecté"}.`
+                : "Aucun email réel ne sera envoyé dans cette version."}
             </p>
-            <div className="grid grid-cols-2 gap-2 sm:flex">
-              <button
-                type="button"
-                onClick={() => onSaveDraft(message)}
-                className="inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-xl border border-[#cfd3da] bg-white px-4 text-sm font-semibold text-[#394150] transition-colors duration-200 hover:bg-[#f1f2f4] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#171717]"
-              >
-                <MailboxIcon name="draft" className="size-4" />
-                Brouillon
-              </button>
+            <div
+              className={onSaveDraft ? "grid grid-cols-2 gap-2 sm:flex" : "flex"}
+            >
+              {onSaveDraft ? (
+                <button
+                  type="button"
+                  onClick={() => onSaveDraft(message)}
+                  className="inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-xl border border-[#cfd3da] bg-white px-4 text-sm font-semibold text-[#394150] transition-colors duration-200 hover:bg-[#f1f2f4] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#171717]"
+                >
+                  <MailboxIcon name="draft" className="size-4" />
+                  Brouillon
+                </button>
+              ) : null}
               <button
                 type="submit"
-                className="inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-xl bg-[#2563eb] px-4 text-sm font-semibold text-white transition-colors duration-200 hover:bg-[#1d4ed8] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#171717]"
+                disabled={sendState.status !== "editing"}
+                className="inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-xl bg-[#2563eb] px-4 text-sm font-semibold text-white transition-colors duration-200 hover:bg-[#1d4ed8] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#171717] disabled:cursor-wait disabled:bg-[#93c5fd]"
               >
                 <MailboxIcon name="send" className="size-4" />
-                Envoyer la démo
+                {deliveryMode === "gmail" ? "Vérifier l’envoi" : "Envoyer la démo"}
               </button>
             </div>
           </footer>

@@ -12,7 +12,10 @@ function json(payload: GmailApiErrorResponse, status: number) {
 }
 
 /** Traduit les erreurs d'authentification et de Gmail de façon uniforme. */
-export function gmailErrorResponse(error: unknown) {
+export function gmailErrorResponse(
+  error: unknown,
+  operation: "read" | "send" = "read",
+) {
   if (error instanceof GoogleSessionError) {
     const messages = {
       UNAUTHENTICATED: "Connectez-vous avec Google pour afficher Gmail.",
@@ -35,7 +38,9 @@ export function gmailErrorResponse(error: unknown) {
         error:
           error.status === 401
             ? "La connexion Google doit être renouvelée."
-            : "Gmail ne peut pas être chargé pour le moment.",
+            : operation === "send"
+              ? "Gmail n'a pas pu envoyer ce message. Aucun nouvel essai automatique n'a été effectué."
+              : "Gmail ne peut pas être chargé pour le moment.",
       },
       error.status === 401 ? 403 : 502,
     );
@@ -45,7 +50,10 @@ export function gmailErrorResponse(error: unknown) {
     {
       success: false,
       code: "GMAIL_ERROR",
-      error: "Une erreur inattendue empêche le chargement de Gmail.",
+      error:
+        operation === "send"
+          ? "Une erreur inattendue a empêché l'envoi du message."
+          : "Une erreur inattendue empêche le chargement de Gmail.",
     },
     500,
   );

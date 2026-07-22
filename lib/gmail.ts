@@ -3,6 +3,7 @@ import type {
   GmailInboxData,
   GmailMessageDetail,
   GmailMessageSummary,
+  GmailSendRequest,
 } from "@/types/gmail";
 
 const GMAIL_API_BASE = "https://gmail.googleapis.com/gmail/v1";
@@ -52,6 +53,11 @@ type GmailRawMessageResponse = {
   };
 };
 
+type GmailSendApiResponse = {
+  id?: string;
+  threadId?: string;
+};
+
 export class GmailApiError extends Error {
   constructor(public readonly status: number) {
     super(`Gmail API error (${status})`);
@@ -59,12 +65,19 @@ export class GmailApiError extends Error {
   }
 }
 
-async function gmailRequest<T>(url: URL, accessToken: string): Promise<T> {
+async function gmailRequest<T>(
+  url: URL,
+  accessToken: string,
+  options?: { method: "POST"; body: unknown },
+): Promise<T> {
   const response = await fetch(url, {
+    method: options?.method ?? "GET",
     headers: {
       Authorization: `Bearer ${accessToken}`,
       Accept: "application/json",
+      ...(options ? { "Content-Type": "application/json" } : {}),
     },
+    body: options ? JSON.stringify(options.body) : undefined,
     cache: "no-store",
   });
 
@@ -288,5 +301,123 @@ export async function getGmailMessage(
     replyTo: headerValue(headers, "reply-to"),
     bodyText: extractBodyText(message.payload),
     attachments: collectAttachments(message.payload),
+  };
+}
+
+function splitRecipients(value: string) {
+  return value
+    .split(/[;,]/)
+    .map((recipient) => recipient.trim())
+    .filter(Boolean);
+}
+
+function encodeMimeHeader(value: string) {
+  const normalized = value.replace(/[\r\n]+/g, " ").trim();
+  const chunks: string[] = [];
+  let currentChunk = "";
+
+  for (const character of normalized) {
+    if (
+      currentChunk &&
+      Buffer.byteLength(currentChunk + character, "utf8") > 36
+    ) {
+      chunks.push(currentChunk);
+      currentChunk = character;
+    } else {
+      currentChunk += character;
+    }
+  }
+  if (currentChunk) {
+    chunks.push(currentChunk);
+  }
+
+  return chunks
+    .map(
+      (chunk) =>
+        `=?UTF-8?B?${Buffer.from(chunk, "utf8").toString("base64")}?=`,
+    )
+    .join("\r\n ");
+}
+
+function createRecipientHeader(name: "To" | "Cc" | "Bcc", value: string) {
+  const lines: string[] = [];
+  let currentLine = `${name}:`;
+
+  for (const recipient of splitRecipients(value)) {
+    const addition = `${currentLine === `${name}:` ? " " : ", "}${recipient}`;
+    if (
+      currentLine !== `${name}:` &&
+      currentLine.length + addition.length > 76
+    ) {
+      lines.push(`${currentLine},`);
+      currentLine = ` ${recipient}`;
+    } else {
+      currentLine += addition;
+    }
+  }
+
+  lines.push(currentLine);
+  return lines.join("\r\n");
+}
+
+function wrapBase64(value: string) {
+  return value.match(/.{1,76}/g)?.join("\r\n") ?? "";
+}
+
+function createRawEmail(from: string, message: GmailSendRequest) {
+  const headers = [
+    `From: ${from}`,
+    createRecipientHeader("To", message.to),
+    ...(message.cc.trim()
+      ? [createRecipientHeader("Cc", message.cc)]
+      : []),
+    ...(message.bcc.trim()
+      ? [createRecipientHeader("Bcc", message.bcc)]
+      : []),
+    `Subject: ${encodeMimeHeader(message.subject)}`,
+    "MIME-Version: 1.0",
+    'Content-Type: text/plain; charset="UTF-8"',
+    "Content-Transfer-Encoding: base64",
+  ];
+  const encodedBody = wrapBase64(
+    Buffer.from(message.body, "utf8").toString("base64"),
+  );
+  const mimeMessage = `${headers.join("\r\n")}\r\n\r\n${encodedBody}`;
+
+  return Buffer.from(mimeMessage, "utf8").toString("base64url");
+}
+
+/** Envoie un nouveau message depuis le compte Gmail authentifié. */
+export async function sendGmailMessage(
+  accessToken: string,
+  message: GmailSendRequest,
+) {
+  const profileUrl = new URL(`${GMAIL_API_BASE}/users/me/profile`);
+  const profile = await gmailRequest<GmailProfileResponse>(
+    profileUrl,
+    accessToken,
+  );
+
+  if (!profile.emailAddress) {
+    throw new GmailApiError(502);
+  }
+
+  const sendUrl = new URL(`${GMAIL_API_BASE}/users/me/messages/send`);
+  const sentMessage = await gmailRequest<GmailSendApiResponse>(
+    sendUrl,
+    accessToken,
+    {
+      method: "POST",
+      body: { raw: createRawEmail(profile.emailAddress, message) },
+    },
+  );
+
+  if (!sentMessage.id) {
+    throw new GmailApiError(502);
+  }
+
+  return {
+    messageId: sentMessage.id,
+    threadId: sentMessage.threadId ?? sentMessage.id,
   };
 }
