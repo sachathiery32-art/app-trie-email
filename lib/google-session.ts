@@ -23,11 +23,7 @@ function usesSecureCookie(request: NextRequest) {
   );
 }
 
-/**
- * Déchiffre le JWT Auth.js côté serveur et retourne un jeton Gmail valide.
- * Le refresh token n'est jamais ajouté à la réponse HTTP de l'application.
- */
-export async function getGoogleAccessToken(request: NextRequest) {
+async function getAllowedGoogleToken(request: NextRequest) {
   const secret = process.env.AUTH_SECRET;
 
   if (!secret) {
@@ -51,6 +47,21 @@ export async function getGoogleAccessToken(request: NextRequest) {
   if (!allowedEmail || token.email.toLocaleLowerCase("en-US") !== allowedEmail) {
     throw new GoogleSessionError("FORBIDDEN");
   }
+
+  return token;
+}
+
+/** Vérifie la session et la liste blanche sans demander un accès à Gmail. */
+export async function requireAllowedGoogleUser(request: NextRequest) {
+  await getAllowedGoogleToken(request);
+}
+
+/**
+ * Déchiffre le JWT Auth.js côté serveur et retourne un jeton Gmail valide.
+ * Le refresh token n'est jamais ajouté à la réponse HTTP de l'application.
+ */
+export async function getGoogleAccessToken(request: NextRequest) {
+  const token = await getAllowedGoogleToken(request);
 
   const expiresAt = token.googleAccessTokenExpiresAt;
   const hasValidAccessToken =

@@ -1,6 +1,7 @@
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 
 import { checkAiRateLimit } from "@/lib/ai-rate-limit";
+import { aiSessionError } from "@/lib/ai-session";
 import { findDemoEmail } from "@/lib/demo-emails";
 import { groq } from "@/lib/groq";
 import {
@@ -45,7 +46,12 @@ function isEmailClassification(value: unknown): value is EmailClassification {
  * Classifie un email fourni par le client, sans dépendre de Gmail.
  * Le corps de la requête est validé avant tout appel payant à Groq.
  */
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
+  const sessionError = await aiSessionError(request);
+  if (sessionError) {
+    return sessionError;
+  }
+
   const rateLimit = checkAiRateLimit(request);
 
   if (!rateLimit.allowed) {
