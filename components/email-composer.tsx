@@ -1,6 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type FormEvent,
+} from "react";
 
 import { MailboxIcon } from "@/components/mailbox-icon";
 import type {
@@ -16,6 +22,7 @@ import type {
 const COMPOSER_TITLES: Record<ComposerSession["mode"], string> = {
   compose: "Nouveau message",
   reply: "Répondre",
+  replyAll: "Répondre à tous",
   forward: "Transférer",
   draft: "Modifier le brouillon",
 };
@@ -30,7 +37,7 @@ type EmailComposerProps = {
   session: ComposerSession;
   onClose: () => void;
   onSaveDraft?: (message: ComposerMessage) => void;
-  onSend: (message: ComposerMessage) => void | Promise<void>;
+  onSend: (message: ComposerMessage, attachments: File[]) => void | Promise<void>;
   deliveryMode?: "demo" | "gmail";
   senderEmail?: string;
 };
@@ -71,6 +78,8 @@ export function EmailComposer({
     | { status: "sending" }
     | { status: "error"; message: string }
   >({ status: "editing" });
+  const [attachments, setAttachments] = useState<File[]>([]);
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const sendInFlight = useRef(false);
 
   useEffect(() => {
@@ -107,7 +116,7 @@ export function EmailComposer({
       setSendState({ status: "confirming" });
       return;
     }
-    void onSend(message);
+    void onSend(message, attachments);
   }
 
   async function confirmRealSend() {
@@ -118,7 +127,7 @@ export function EmailComposer({
     sendInFlight.current = true;
     setSendState({ status: "sending" });
     try {
-      await onSend(message);
+      await onSend(message, attachments);
     } catch (error) {
       setSendState({
         status: "error",
@@ -134,7 +143,9 @@ export function EmailComposer({
 
   async function generateWithAi() {
     const sourceEmailId = session.sourceEmailId;
-    const isReply = session.mode === "reply" && Boolean(sourceEmailId);
+    const isReply =
+      (session.mode === "reply" || session.mode === "replyAll") &&
+      Boolean(sourceEmailId);
     const isNewMessage = session.mode === "compose";
 
     if (!isReply && !isNewMessage) {
@@ -176,7 +187,7 @@ export function EmailComposer({
 
       setMessage((currentMessage) => ({
         ...currentMessage,
-        subject: payload.data.subject,
+        subject: isReply ? currentMessage.subject : payload.data.subject,
         body: payload.data.body,
       }));
       setAiState({ status: "success", model: payload.data.model });
@@ -189,6 +200,52 @@ export function EmailComposer({
             : "Impossible de générer le message.",
       });
     }
+  }
+
+  function addAttachments(event: ChangeEvent<HTMLInputElement>) {
+    const selectedFiles = Array.from(event.target.files ?? []);
+    event.target.value = "";
+    if (selectedFiles.length === 0) {
+      return;
+    }
+
+    const uniqueFiles = [...attachments];
+    for (const file of selectedFiles) {
+      if (
+        !uniqueFiles.some(
+          (current) =>
+            current.name === file.name &&
+            current.size === file.size &&
+            current.lastModified === file.lastModified,
+        )
+      ) {
+        uniqueFiles.push(file);
+      }
+    }
+
+    const totalBytes = uniqueFiles.reduce((total, file) => total + file.size, 0);
+    if (
+      uniqueFiles.length > 10 ||
+      totalBytes > 3 * 1024 * 1024 ||
+      uniqueFiles.some((file) => file.size === 0)
+    ) {
+      setAttachmentError(
+        "Ajoutez au maximum 10 fichiers non vides pour un total de 3 Mo.",
+      );
+      return;
+    }
+
+    setAttachments(uniqueFiles);
+    setAttachmentError(null);
+    setSendState({ status: "editing" });
+  }
+
+  function removeAttachment(index: number) {
+    setAttachments((current) =>
+      current.filter((_, currentIndex) => currentIndex !== index),
+    );
+    setAttachmentError(null);
+    setSendState({ status: "editing" });
   }
 
   return (
@@ -308,17 +365,26 @@ export function EmailComposer({
                   id="composer-subject"
                   type="text"
                   required
+                  readOnly={
+                    session.mode === "reply" || session.mode === "replyAll"
+                  }
                   maxLength={500}
                   value={message.subject}
                   onChange={(event) =>
                     updateField("subject", event.target.value)
                   }
-                  className="mt-2 min-h-12 w-full rounded-xl border border-[#d9dce2] px-4 text-base text-[#171717] outline-none focus:border-[#171717] focus:ring-1 focus:ring-[#171717]"
+                  className="mt-2 min-h-12 w-full rounded-xl border border-[#d9dce2] px-4 text-base text-[#171717] outline-none focus:border-[#171717] focus:ring-1 focus:ring-[#171717] read-only:cursor-not-allowed read-only:bg-[#f1f2f4] read-only:text-[#526071]"
                 />
+                {session.mode === "reply" || session.mode === "replyAll" ? (
+                  <p className="mt-1 text-xs text-[#667085]">
+                    L’objet est conservé pour rattacher la réponse au bon fil Gmail.
+                  </p>
+                ) : null}
               </div>
 
               {(session.mode === "compose" ||
-                (session.mode === "reply" && session.sourceEmailId)) && (
+                ((session.mode === "reply" || session.mode === "replyAll") &&
+                  session.sourceEmailId)) && (
                 <section
                   aria-labelledby="ai-writing-title"
                   className="rounded-2xl border border-[#e0d5ac] bg-[#fffaf0] p-4"
@@ -394,7 +460,9 @@ export function EmailComposer({
                       {aiState.status === "idle" &&
                         (session.mode === "compose"
                           ? "Indiquez ce que vous voulez communiquer, sans données sensibles."
-                          : "Le contenu utilisé est entièrement fictif.")}
+                          : deliveryMode === "gmail"
+                            ? "Le contenu de cet email sera transmis à Groq pour préparer la réponse."
+                            : "Le contenu utilisé est entièrement fictif.")}
                       {aiState.status === "loading" &&
                         "Génération du brouillon en cours…"}
                       {aiState.status === "success" &&
@@ -441,6 +509,75 @@ export function EmailComposer({
                   placeholder="Écrivez votre message…"
                 />
               </div>
+
+              {deliveryMode === "gmail" ? (
+                <section
+                  aria-labelledby="attachments-title"
+                  className="rounded-2xl border border-[#d9dce2] bg-[#fafafa] p-4"
+                >
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <h3
+                        id="attachments-title"
+                        className="text-sm font-semibold text-[#252b37]"
+                      >
+                        Pièces jointes
+                      </h3>
+                      <p className="mt-1 text-xs leading-5 text-[#667085]">
+                        Jusqu’à 10 fichiers, 3 Mo au total sur cet hébergement.
+                      </p>
+                    </div>
+                    <label className="inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-xl border border-[#cfd3da] bg-white px-4 text-sm font-semibold text-[#394150] transition-colors duration-200 hover:bg-[#f1f2f4] focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-[#171717]">
+                      <MailboxIcon name="attachment" className="size-4" />
+                      Ajouter des fichiers
+                      <input
+                        type="file"
+                        multiple
+                        onChange={addAttachments}
+                        className="sr-only"
+                      />
+                    </label>
+                  </div>
+
+                  {attachmentError ? (
+                    <p role="alert" className="mt-3 text-sm text-red-800">
+                      {attachmentError}
+                    </p>
+                  ) : null}
+
+                  {attachments.length ? (
+                    <ul className="mt-3 grid gap-2 sm:grid-cols-2">
+                      {attachments.map((file, index) => (
+                        <li
+                          key={`${file.name}-${file.size}-${file.lastModified}`}
+                          className="flex min-w-0 items-center gap-3 rounded-xl border border-[#d9dce2] bg-white px-3 py-2"
+                        >
+                          <MailboxIcon
+                            name="attachment"
+                            className="size-4 shrink-0 text-[#526071]"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-semibold text-[#252b37]">
+                              {file.name}
+                            </p>
+                            <p className="text-xs text-[#667085]">
+                              {(file.size / 1024).toFixed(0)} Ko
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => removeAttachment(index)}
+                            aria-label={`Retirer ${file.name}`}
+                            className="flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-xl text-[#667085] transition-colors hover:bg-red-50 hover:text-red-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-800"
+                          >
+                            <MailboxIcon name="close" className="size-4" />
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </section>
+              ) : null}
             </div>
           </div>
 
@@ -490,6 +627,13 @@ export function EmailComposer({
                       Après confirmation, Gmail remettra réellement ce message
                       aux destinataires.
                     </p>
+                    {attachments.length ? (
+                      <p className="mt-1 text-xs font-semibold text-blue-900">
+                        {attachments.length} pièce
+                        {attachments.length > 1 ? "s" : ""} jointe
+                        {attachments.length > 1 ? "s" : ""}.
+                      </p>
+                    ) : null}
                   </div>
                   <div className="grid shrink-0 grid-cols-2 gap-2">
                     <button

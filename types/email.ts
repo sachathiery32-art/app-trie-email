@@ -24,7 +24,12 @@ export type EmailCategory = (typeof EMAIL_CATEGORIES)[number];
 export type MailboxFolder = (typeof MAILBOX_FOLDERS)[number];
 export type MailboxView = MailboxFolder | "starred";
 export type ReplyTone = (typeof REPLY_TONES)[number];
-export type ComposerMode = "compose" | "reply" | "forward" | "draft";
+export type ComposerMode =
+  | "compose"
+  | "reply"
+  | "replyAll"
+  | "forward"
+  | "draft";
 
 export type EmailContent = {
   sender: string;

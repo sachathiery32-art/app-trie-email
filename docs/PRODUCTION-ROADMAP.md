@@ -1,9 +1,9 @@
 # Passage à une vraie messagerie
 
-L'interface actuelle reproduit les principaux comportements d'un client email,
-mais les données restent fictives. Cette feuille de route décrit le travail
-nécessaire pour piloter une vraie boîte à distance sans demander ni conserver le
-mot de passe de l'utilisateur.
+La version personnelle pilote désormais une vraie boîte Gmail : lecture, envoi,
+réponses, transferts, pièces jointes, dossiers et actions sur les libellés. Cette
+feuille de route décrit ce qui reste nécessaire pour passer de cette connexion
+directe à un SaaS multi-utilisateur synchronisé en permanence.
 
 ## 1. Choisir et autoriser un fournisseur
 
@@ -95,7 +95,8 @@ requise. Documentation : [vérification des permissions restreintes](https://dev
 3. Ajouter PostgreSQL, Prisma et le chiffrement des jetons.
 4. Remplacer une seule action fictive : la lecture de dix emails.
 5. Tester, puis ajouter l'envoi d'un email vers une adresse contrôlée.
-6. Ajouter brouillons, réponses, transferts et gestion des libellés.
+6. Ajouter brouillons, réponses, transferts et gestion des libellés. **Réponses,
+   transferts et libellés terminés pour la version personnelle.**
 7. Activer Pub/Sub et la synchronisation automatique.
 8. Réaliser la sécurité, les pages légales et la vérification avant tout accès
    public.

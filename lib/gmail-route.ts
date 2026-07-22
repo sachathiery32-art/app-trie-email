@@ -14,7 +14,7 @@ function json(payload: GmailApiErrorResponse, status: number) {
 /** Traduit les erreurs d'authentification et de Gmail de façon uniforme. */
 export function gmailErrorResponse(
   error: unknown,
-  operation: "read" | "send" = "read",
+  operation: "read" | "send" | "modify" = "read",
 ) {
   if (error instanceof GoogleSessionError) {
     const messages = {
@@ -31,6 +31,7 @@ export function gmailErrorResponse(
   }
 
   if (error instanceof GmailApiError) {
+    const isAttachmentTooLarge = error.status === 413;
     return json(
       {
         success: false,
@@ -38,11 +39,15 @@ export function gmailErrorResponse(
         error:
           error.status === 401
             ? "La connexion Google doit être renouvelée."
+            : isAttachmentTooLarge
+              ? "Cette pièce jointe dépasse la limite de téléchargement de 3 Mo de l'hébergement actuel."
             : operation === "send"
               ? "Gmail n'a pas pu envoyer ce message. Aucun nouvel essai automatique n'a été effectué."
-              : "Gmail ne peut pas être chargé pour le moment.",
+              : operation === "modify"
+                ? "Gmail n'a pas pu appliquer cette action."
+                : "Gmail ne peut pas être chargé pour le moment.",
       },
-      error.status === 401 ? 403 : 502,
+      error.status === 401 ? 403 : isAttachmentTooLarge ? 413 : 502,
     );
   }
 
@@ -53,7 +58,9 @@ export function gmailErrorResponse(
       error:
         operation === "send"
           ? "Une erreur inattendue a empêché l'envoi du message."
-          : "Une erreur inattendue empêche le chargement de Gmail.",
+          : operation === "modify"
+            ? "Une erreur inattendue a empêché la modification de Gmail."
+            : "Une erreur inattendue empêche le chargement de Gmail.",
     },
     500,
   );

@@ -3,6 +3,8 @@ import { NextResponse, type NextRequest } from "next/server";
 import { checkAiRateLimit } from "@/lib/ai-rate-limit";
 import { aiSessionError } from "@/lib/ai-session";
 import { findDemoEmail } from "@/lib/demo-emails";
+import { getGmailMessage } from "@/lib/gmail";
+import { getGoogleAccessToken } from "@/lib/google-session";
 import { groq } from "@/lib/groq";
 import {
   REPLY_TONES,
@@ -49,7 +51,7 @@ function isGeneratedReply(
   );
 }
 
-/** Génère un brouillon uniquement à partir des emails fictifs du projet. */
+/** Génère un brouillon à partir d'un email Gmail autorisé ou de démonstration. */
 export async function POST(request: NextRequest) {
   const sessionError = await aiSessionError(request);
   if (sessionError) {
@@ -80,19 +82,35 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const sourceEmail = findDemoEmail(requestBody.emailId);
-
-  if (!sourceEmail || sourceEmail.direction !== "incoming") {
-    return NextResponse.json<DraftReplyResponse>(
-      {
-        success: false,
-        error: "La réponse IA est réservée aux emails fictifs reçus.",
-      },
-      { status: 404 },
-    );
-  }
-
   try {
+    const demoEmail = findDemoEmail(requestBody.emailId);
+    if (demoEmail && demoEmail.direction !== "incoming") {
+      return NextResponse.json<DraftReplyResponse>(
+        { success: false, error: "Cet email ne peut pas recevoir de réponse." },
+        { status: 400 },
+      );
+    }
+
+    const sourceEmail = demoEmail
+      ? {
+          sender: demoEmail.sender,
+          subject: demoEmail.subject,
+          body: demoEmail.body,
+        }
+      : await (async () => {
+          const accessToken = await getGoogleAccessToken(request);
+          const gmailMessage = await getGmailMessage(
+            accessToken,
+            requestBody.emailId,
+          );
+          return {
+            sender: gmailMessage.senderEmail,
+            subject: gmailMessage.subject,
+            // Limite les données transmises à Groq tout en gardant le contexte utile.
+            body: gmailMessage.bodyText.slice(0, 12_000),
+          };
+        })();
+
     const completion = await groq.chat.completions.create({
       model: "openai/gpt-oss-20b",
       messages: [

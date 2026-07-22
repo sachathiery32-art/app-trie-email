@@ -1,18 +1,24 @@
 # Email Organizer AI
 
 Pilote personnel de messagerie construit avec Next.js, Auth.js et Groq. La
-connexion Google est réelle, limitée à une adresse autorisée et affiche les 20
-messages les plus récents de la boîte de réception Gmail en lecture seule.
+connexion Google est réelle, limitée à une adresse autorisée et permet de piloter
+la boîte Gmail depuis une interface secondaire.
 
 ## Fonctionnalités
 
 - connexion Google OAuth avec liste blanche côté serveur ;
 - conservation chiffrée des jetons OAuth dans un cookie `HttpOnly` ;
 - renouvellement automatique du jeton d'accès Google ;
-- chargement réel des 20 derniers messages de la boîte de réception ;
-- affichage du compte, des compteurs Gmail, des états lu/non lu et des favoris ;
-- sélection d'un message et aperçu de ses métadonnées ;
-- actualisation manuelle sans modifier la boîte Gmail ;
+- pagination des dossiers Réception, Favoris, Envoyés, Brouillons, Archives,
+  Corbeille et Tous les messages ;
+- recherche utilisant la syntaxe Gmail ;
+- lecture du contenu complet et téléchargement des pièces jointes jusqu'à 3 Mo ;
+- nouveau message, réponse, réponse à tous et transfert rattaché au fil Gmail ;
+- ajout de dix pièces jointes maximum, pour 3 Mo au total ;
+- modification lu/non lu, favoris, archivage, corbeille, restauration et libellés ;
+- rédaction Groq d'un nouveau message ou d'une réponse réelle ;
+- synchronisation toutes les 60 secondes lorsque le site est ouvert, au retour
+  sur l'onglet et à chaque nouvelle visite ;
 - interface responsive et accessible au clavier.
 
 L'ancienne interface de démonstration et les routes Groq sont conservées dans le
@@ -21,11 +27,15 @@ code pour les prochaines étapes, mais l'accueil utilise désormais Gmail réel.
 ## Architecture
 
 - `app/api/classify` valide puis classe un email de démonstration avec Groq ;
-- `app/api/draft-reply` génère un brouillon de réponse à partir d'un email
-  fictif ;
+- `app/api/draft-reply` génère un brouillon de réponse à partir d'un email Gmail
+  autorisé ou fictif ;
 - `app/api/draft-message` génère un nouveau message à partir d'une consigne ;
 - `app/api/auth/[...nextauth]` reçoit les requêtes OAuth et le callback Google ;
-- `app/api/gmail/inbox` retourne la première page Gmail en lecture seule ;
+- `app/api/gmail/inbox` retourne une page d'une vue Gmail et ses libellés ;
+- `app/api/gmail/send` valide les destinataires, les fils et les pièces jointes ;
+- `app/api/gmail/messages/[messageId]/modify` applique les actions Gmail ;
+- `app/api/gmail/messages/[messageId]/attachments/[attachmentId]` transmet une
+  pièce jointe sans exposer le jeton Google ;
 - `auth.ts` centralise le fournisseur Google, la liste blanche et les jetons ;
 - `components/gmail-inbox.tsx` affiche la boîte Gmail réelle ;
 - `lib/google-oauth.ts` renouvelle le jeton d'accès sans exposer les secrets ;
@@ -40,9 +50,9 @@ code pour les prochaines étapes, mais l'accueil utilise désormais Gmail réel.
 - `lib/ai-rate-limit.ts` limite les appels IA par adresse réseau ;
 - `types/email.ts` définit les contrats TypeScript partagés.
 
-La classification et la réponse IA n'acceptent que les identifiants du jeu de
-démonstration. La rédaction libre valide strictement les longueurs et toutes les
-routes IA appliquent une limitation légère du nombre de requêtes. Une production
+La classification IA reste limitée au jeu de démonstration. La réponse IA accepte
+un message Gmail réel après validation de la session. Toutes les routes IA
+appliquent une limitation légère du nombre de requêtes. Une production
 multi-instance devra remplacer cette limite locale par un stockage partagé.
 
 ## Installation
@@ -74,10 +84,15 @@ JavaScript envoyé au navigateur.
 
 ## Limites de cette version
 
-Cette étape lit Gmail mais ne récupère encore qu'une page de 20 messages et un
-aperçu fourni par Gmail. Elle ne modifie aucun message et ne permet pas encore
-d'envoyer, répondre, transférer, classer ou synchroniser la boîte en arrière-plan.
-Ces actions seront branchées une par une après validation de la lecture réelle.
+La version personnelle interroge toujours Gmail directement et ne conserve pas
+les emails dans une base de données. La synchronisation automatique fonctionne
+donc lorsque le site est ouvert ; à la prochaine visite, la boîte est rechargée
+depuis Gmail. Une synchronisation serveur permanente, même site fermé, exigera
+PostgreSQL, Google Cloud Pub/Sub et une tâche de renouvellement de `watch`.
+
+La limite de 3 Mo par requête/téléchargement vient de l'hébergement Vercel actuel,
+pas de Gmail. Les brouillons Gmail côté serveur, les conversations regroupées et
+la synchronisation Pub/Sub restent à développer pour une version SaaS publique.
 
 Le plan technique et les interventions nécessaires sont détaillés dans
 [`docs/PRODUCTION-ROADMAP.md`](docs/PRODUCTION-ROADMAP.md).

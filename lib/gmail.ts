@@ -1,6 +1,8 @@
 import type {
   GmailAttachmentSummary,
   GmailInboxData,
+  GmailLabelSummary,
+  GmailMailboxView,
   GmailMessageDetail,
   GmailMessageSummary,
   GmailSendRequest,
@@ -58,6 +60,34 @@ type GmailSendApiResponse = {
   threadId?: string;
 };
 
+type GmailLabelResponse = {
+  id?: string;
+  name?: string;
+  type?: "system" | "user";
+  messagesTotal?: number;
+  messagesUnread?: number;
+  color?: {
+    textColor?: string;
+    backgroundColor?: string;
+  };
+};
+
+type GmailLabelsListResponse = {
+  labels?: GmailLabelResponse[];
+};
+
+type GmailAttachmentBodyResponse = {
+  attachmentId?: string;
+  size?: number;
+  data?: string;
+};
+
+export type GmailOutgoingAttachment = {
+  filename: string;
+  mimeType: string;
+  data: Buffer;
+};
+
 export class GmailApiError extends Error {
   constructor(public readonly status: number) {
     super(`Gmail API error (${status})`);
@@ -68,16 +98,17 @@ export class GmailApiError extends Error {
 async function gmailRequest<T>(
   url: URL,
   accessToken: string,
-  options?: { method: "POST"; body: unknown },
+  options?: { method?: "POST"; body?: unknown },
 ): Promise<T> {
+  const hasBody = options?.body !== undefined;
   const response = await fetch(url, {
     method: options?.method ?? "GET",
     headers: {
       Authorization: `Bearer ${accessToken}`,
       Accept: "application/json",
-      ...(options ? { "Content-Type": "application/json" } : {}),
+      ...(hasBody ? { "Content-Type": "application/json" } : {}),
     },
-    body: options ? JSON.stringify(options.body) : undefined,
+    body: hasBody ? JSON.stringify(options.body) : undefined,
     cache: "no-store",
   });
 
@@ -136,6 +167,7 @@ function normalizeMessage(
     isUnread: labels.has("UNREAD"),
     isStarred: labels.has("STARRED"),
     isImportant: labels.has("IMPORTANT"),
+    labelIds: [...labels],
   };
 }
 
@@ -143,7 +175,7 @@ async function getMessageMetadata(id: string, accessToken: string) {
   const url = new URL(`${GMAIL_API_BASE}/users/me/messages/${id}`);
   url.searchParams.set("format", "metadata");
 
-  for (const header of ["From", "To", "Subject", "Date"]) {
+  for (const header of ["From", "To", "Cc", "Subject", "Date"]) {
     url.searchParams.append("metadataHeaders", header);
   }
 
@@ -154,22 +186,78 @@ async function getMessageMetadata(id: string, accessToken: string) {
  * Charge une page de la boîte de réception. Gmail renvoie d'abord des
  * identifiants, puis un appel `messages.get` fournit les métadonnées.
  */
-export async function listGmailInboxPage(
+function viewParameters(view: GmailMailboxView) {
+  switch (view) {
+    case "inbox":
+      return { labelId: "INBOX", query: "", includeSpamTrash: false };
+    case "starred":
+      return { labelId: "STARRED", query: "", includeSpamTrash: false };
+    case "sent":
+      return { labelId: "SENT", query: "", includeSpamTrash: false };
+    case "drafts":
+      return { labelId: "DRAFT", query: "", includeSpamTrash: false };
+    case "archive":
+      return {
+        query: "-label:inbox -label:sent -label:drafts -label:trash -label:spam",
+        includeSpamTrash: false,
+      };
+    case "trash":
+      return { labelId: "TRASH", query: "", includeSpamTrash: true };
+    case "all":
+      return { query: "", includeSpamTrash: false };
+  }
+}
+
+function normalizeLabel(label: GmailLabelResponse): GmailLabelSummary | null {
+  if (!label.id || !label.name || !label.type) {
+    return null;
+  }
+
+  return {
+    id: label.id,
+    name: label.name,
+    type: label.type,
+    messagesTotal: label.messagesTotal,
+    messagesUnread: label.messagesUnread,
+    textColor: label.color?.textColor,
+    backgroundColor: label.color?.backgroundColor,
+  };
+}
+
+/** Charge une page d'une vue Gmail ainsi que les libellés disponibles. */
+export async function listGmailMailboxPage(
   accessToken: string,
-  pageToken?: string,
+  options: {
+    view: GmailMailboxView;
+    pageToken?: string;
+    search?: string;
+  },
 ): Promise<GmailInboxData> {
+  const { view, pageToken, search = "" } = options;
+  const viewFilter = viewParameters(view);
   const listUrl = new URL(`${GMAIL_API_BASE}/users/me/messages`);
   listUrl.searchParams.set("maxResults", String(INBOX_PAGE_SIZE));
-  listUrl.searchParams.set("labelIds", "INBOX");
-  listUrl.searchParams.set("includeSpamTrash", "false");
+  if (viewFilter.labelId) {
+    listUrl.searchParams.set("labelIds", viewFilter.labelId);
+  }
+  listUrl.searchParams.set(
+    "includeSpamTrash",
+    String(viewFilter.includeSpamTrash),
+  );
+  const query = [viewFilter.query, search.trim()].filter(Boolean).join(" ");
+  if (query) {
+    listUrl.searchParams.set("q", query);
+  }
   if (pageToken) {
     listUrl.searchParams.set("pageToken", pageToken);
   }
 
   const profileUrl = new URL(`${GMAIL_API_BASE}/users/me/profile`);
-  const [list, profile] = await Promise.all([
+  const labelsUrl = new URL(`${GMAIL_API_BASE}/users/me/labels`);
+  const [list, profile, labelsResponse] = await Promise.all([
     gmailRequest<GmailListResponse>(listUrl, accessToken),
     gmailRequest<GmailProfileResponse>(profileUrl, accessToken),
+    gmailRequest<GmailLabelsListResponse>(labelsUrl, accessToken),
   ]);
 
   const messageIds = (list.messages ?? [])
@@ -192,10 +280,15 @@ export async function listGmailInboxPage(
     accountEmail: profile.emailAddress ?? "",
     mailboxMessageCount: profile.messagesTotal ?? 0,
     mailboxThreadCount: profile.threadsTotal ?? 0,
-    inboxEstimate: list.resultSizeEstimate ?? messages.length,
+    view,
+    search: search.trim(),
+    viewEstimate: list.resultSizeEstimate ?? messages.length,
     hasMore: Boolean(list.nextPageToken),
     nextPageToken: list.nextPageToken,
     messages,
+    labels: (labelsResponse.labels ?? [])
+      .map(normalizeLabel)
+      .filter((label): label is GmailLabelSummary => Boolean(label)),
     syncedAt: new Date().toISOString(),
   };
 }
@@ -268,6 +361,7 @@ function collectAttachments(
 ) {
   if (part?.filename && (part.body?.attachmentId || part.body?.data)) {
     attachments.push({
+      id: part.body.attachmentId ?? null,
       filename: part.filename,
       mimeType: part.mimeType ?? "application/octet-stream",
       size: part.body.size ?? 0,
@@ -301,6 +395,8 @@ export async function getGmailMessage(
     replyTo: headerValue(headers, "reply-to"),
     bodyText: extractBodyText(message.payload),
     attachments: collectAttachments(message.payload),
+    messageIdHeader: headerValue(headers, "message-id"),
+    references: headerValue(headers, "references"),
   };
 }
 
@@ -364,7 +460,40 @@ function wrapBase64(value: string) {
   return value.match(/.{1,76}/g)?.join("\r\n") ?? "";
 }
 
-function createRawEmail(from: string, message: GmailSendRequest) {
+function sanitizeMessageReferences(value: string) {
+  return (value.match(/<[^<>\r\n]{1,998}>/g) ?? []).join(" ").slice(0, 4_000);
+}
+
+function sanitizeMimeType(value: string) {
+  return /^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*\/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*$/.test(
+    value,
+  )
+    ? value
+    : "application/octet-stream";
+}
+
+function sanitizeFilename(value: string) {
+  const cleaned = value
+    .replace(/[\u0000-\u001f\u007f]/g, "")
+    .replace(/[\\/"]/g, "_")
+    .trim()
+    .slice(0, 180);
+  return cleaned || "piece-jointe";
+}
+
+function asciiFilename(value: string) {
+  return value
+    .normalize("NFKD")
+    .replace(/[^\x20-\x7E]/g, "_")
+    .replace(/[\\/"]/g, "_");
+}
+
+function createRawEmail(
+  from: string,
+  message: GmailSendRequest,
+  attachments: GmailOutgoingAttachment[],
+  replyHeaders?: { inReplyTo: string; references: string },
+) {
   const headers = [
     `From: ${from}`,
     createRecipientHeader("To", message.to),
@@ -375,22 +504,64 @@ function createRawEmail(from: string, message: GmailSendRequest) {
       ? [createRecipientHeader("Bcc", message.bcc)]
       : []),
     `Subject: ${encodeMimeHeader(message.subject)}`,
+    ...(replyHeaders?.inReplyTo
+      ? [`In-Reply-To: ${replyHeaders.inReplyTo}`]
+      : []),
+    ...(replyHeaders?.references
+      ? [`References: ${replyHeaders.references}`]
+      : []),
     "MIME-Version: 1.0",
-    'Content-Type: text/plain; charset="UTF-8"',
-    "Content-Transfer-Encoding: base64",
   ];
   const encodedBody = wrapBase64(
     Buffer.from(message.body, "utf8").toString("base64"),
   );
-  const mimeMessage = `${headers.join("\r\n")}\r\n\r\n${encodedBody}`;
+
+  if (attachments.length === 0) {
+    const mimeMessage = `${[
+      ...headers,
+      'Content-Type: text/plain; charset="UTF-8"',
+      "Content-Transfer-Encoding: base64",
+    ].join("\r\n")}\r\n\r\n${encodedBody}`;
+    return Buffer.from(mimeMessage, "utf8").toString("base64url");
+  }
+
+  const boundary = `email-organizer-${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2)}`;
+  const parts = [
+    `--${boundary}\r\nContent-Type: text/plain; charset="UTF-8"\r\nContent-Transfer-Encoding: base64\r\n\r\n${encodedBody}`,
+    ...attachments.map((attachment) => {
+      const filename = sanitizeFilename(attachment.filename);
+      const fallbackName = asciiFilename(filename);
+      const encodedName = encodeURIComponent(filename).replace(
+        /[!'()*]/g,
+        (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
+      );
+
+      return [
+        `--${boundary}`,
+        `Content-Type: ${sanitizeMimeType(attachment.mimeType)}; name="${fallbackName}"`,
+        "Content-Transfer-Encoding: base64",
+        `Content-Disposition: attachment; filename="${fallbackName}"; filename*=UTF-8''${encodedName}`,
+        "",
+        wrapBase64(attachment.data.toString("base64")),
+      ].join("\r\n");
+    }),
+    `--${boundary}--`,
+  ];
+  const mimeMessage = `${[
+    ...headers,
+    `Content-Type: multipart/mixed; boundary="${boundary}"`,
+  ].join("\r\n")}\r\n\r\n${parts.join("\r\n")}`;
 
   return Buffer.from(mimeMessage, "utf8").toString("base64url");
 }
 
-/** Envoie un nouveau message depuis le compte Gmail authentifié. */
+/** Envoie un message, une réponse ou un transfert depuis Gmail. */
 export async function sendGmailMessage(
   accessToken: string,
   message: GmailSendRequest,
+  attachments: GmailOutgoingAttachment[] = [],
 ) {
   const profileUrl = new URL(`${GMAIL_API_BASE}/users/me/profile`);
   const profile = await gmailRequest<GmailProfileResponse>(
@@ -402,13 +573,53 @@ export async function sendGmailMessage(
     throw new GmailApiError(502);
   }
 
+  const isReply = message.mode === "reply" || message.mode === "replyAll";
+  const sourceMessage =
+    isReply && message.sourceMessageId
+      ? await getGmailMessage(accessToken, message.sourceMessageId)
+      : null;
+  if (isReply && !sourceMessage) {
+    throw new GmailApiError(400);
+  }
+
+  const sourceMessageIdHeader = sourceMessage
+    ? sanitizeMessageReferences(sourceMessage.messageIdHeader)
+    : "";
+  const referenceChain = sourceMessage
+    ? [sanitizeMessageReferences(sourceMessage.references), sourceMessageIdHeader]
+        .filter(Boolean)
+        .join(" ")
+        .trim()
+    : "";
+  const messageForDelivery = sourceMessage
+    ? {
+        ...message,
+        subject: /^re\s*:/i.test(sourceMessage.subject)
+          ? sourceMessage.subject
+          : `Re: ${sourceMessage.subject}`,
+      }
+    : message;
+
   const sendUrl = new URL(`${GMAIL_API_BASE}/users/me/messages/send`);
   const sentMessage = await gmailRequest<GmailSendApiResponse>(
     sendUrl,
     accessToken,
     {
       method: "POST",
-      body: { raw: createRawEmail(profile.emailAddress, message) },
+      body: {
+        raw: createRawEmail(
+          profile.emailAddress,
+          messageForDelivery,
+          attachments,
+          sourceMessage
+            ? {
+                inReplyTo: sourceMessageIdHeader,
+                references: referenceChain,
+              }
+            : undefined,
+        ),
+        ...(sourceMessage ? { threadId: sourceMessage.threadId } : {}),
+      },
     },
   );
 
@@ -420,4 +631,83 @@ export async function sendGmailMessage(
     messageId: sentMessage.id,
     threadId: sentMessage.threadId ?? sentMessage.id,
   };
+}
+
+/** Applique une action Gmail en utilisant les libellés système officiels. */
+export async function modifyGmailMessage(
+  accessToken: string,
+  messageId: string,
+  action:
+    | "mark_read"
+    | "mark_unread"
+    | "star"
+    | "unstar"
+    | "archive"
+    | "trash"
+    | "restore"
+    | "add_label"
+    | "remove_label",
+  labelId?: string,
+) {
+  const baseUrl = `${GMAIL_API_BASE}/users/me/messages/${encodeURIComponent(messageId)}`;
+
+  if (action === "trash" || action === "restore") {
+    const actionUrl = new URL(
+      `${baseUrl}/${action === "trash" ? "trash" : "untrash"}`,
+    );
+    await gmailRequest<GmailRawMessageResponse>(actionUrl, accessToken, {
+      method: "POST",
+    });
+
+    if (action === "restore") {
+      const modifyUrl = new URL(`${baseUrl}/modify`);
+      await gmailRequest<GmailRawMessageResponse>(modifyUrl, accessToken, {
+        method: "POST",
+        body: { addLabelIds: ["INBOX"] },
+      });
+    }
+    return;
+  }
+
+  const changes = {
+    mark_read: { removeLabelIds: ["UNREAD"] },
+    mark_unread: { addLabelIds: ["UNREAD"] },
+    star: { addLabelIds: ["STARRED"] },
+    unstar: { removeLabelIds: ["STARRED"] },
+    archive: { removeLabelIds: ["INBOX"] },
+    add_label: { addLabelIds: labelId ? [labelId] : [] },
+    remove_label: { removeLabelIds: labelId ? [labelId] : [] },
+  } as const;
+  const modifyUrl = new URL(`${baseUrl}/modify`);
+  await gmailRequest<GmailRawMessageResponse>(modifyUrl, accessToken, {
+    method: "POST",
+    body: changes[action],
+  });
+}
+
+/** Télécharge une pièce jointe encodée en base64url par Gmail. */
+export async function downloadGmailAttachment(
+  accessToken: string,
+  messageId: string,
+  attachmentId: string,
+) {
+  const url = new URL(
+    `${GMAIL_API_BASE}/users/me/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(attachmentId)}`,
+  );
+  const attachment = await gmailRequest<GmailAttachmentBodyResponse>(
+    url,
+    accessToken,
+  );
+
+  if (!attachment.data) {
+    throw new GmailApiError(502);
+  }
+  if ((attachment.size ?? 0) > 3 * 1024 * 1024) {
+    throw new GmailApiError(413);
+  }
+
+  return Buffer.from(
+    attachment.data.replace(/-/g, "+").replace(/_/g, "/"),
+    "base64",
+  );
 }
