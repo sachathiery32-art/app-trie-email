@@ -18,6 +18,10 @@ import type {
   DraftReplyResponse,
   ReplyTone,
 } from "@/types/email";
+import {
+  type AiRewriteAction,
+  type GmailAiRewriteResponse,
+} from "@/types/ai";
 
 const COMPOSER_TITLES: Record<ComposerSession["mode"], string> = {
   compose: "Nouveau message",
@@ -33,6 +37,14 @@ const TONE_LABELS: Record<ReplyTone, string> = {
   friendly: "Chaleureux",
 };
 
+const REWRITE_LABELS: Record<AiRewriteAction, string> = {
+  proofread: "Corriger",
+  shorten: "Raccourcir",
+  expand: "Développer",
+  professional: "Professionnel",
+  friendly: "Chaleureux",
+};
+
 type EmailComposerProps = {
   session: ComposerSession;
   onClose: () => void;
@@ -40,6 +52,7 @@ type EmailComposerProps = {
   onSend: (message: ComposerMessage, attachments: File[]) => void | Promise<void>;
   deliveryMode?: "demo" | "gmail";
   senderEmail?: string;
+  writingStyle?: string;
 };
 
 export function EmailComposer({
@@ -49,6 +62,7 @@ export function EmailComposer({
   onSend,
   deliveryMode = "demo",
   senderEmail,
+  writingStyle = "",
 }: EmailComposerProps) {
   const [message, setMessage] = useState<ComposerMessage>({
     to: session.to,
@@ -80,6 +94,12 @@ export function EmailComposer({
   >({ status: "editing" });
   const [attachments, setAttachments] = useState<File[]>([]);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const [rewriteState, setRewriteState] = useState<
+    | { status: "idle" }
+    | { status: "loading"; action: AiRewriteAction }
+    | { status: "success"; model: string }
+    | { status: "error"; message: string }
+  >({ status: "idle" });
   const sendInFlight = useRef(false);
 
   useEffect(() => {
@@ -246,6 +266,45 @@ export function EmailComposer({
     );
     setAttachmentError(null);
     setSendState({ status: "editing" });
+  }
+
+  async function rewriteWithAi(action: AiRewriteAction) {
+    if (!message.body.trim() || rewriteState.status === "loading") return;
+    setRewriteState({ status: "loading", action });
+    try {
+      const response = await fetch("/api/gmail/ai/rewrite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action,
+          subject: message.subject,
+          body: message.body,
+          writingStyle,
+        }),
+      });
+      const payload = (await response.json()) as GmailAiRewriteResponse;
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.success ? "Réponse IA incomplète." : payload.error);
+      }
+      setMessage((current) => ({
+        ...current,
+        subject:
+          session.mode === "reply" || session.mode === "replyAll"
+            ? current.subject
+            : payload.data.subject,
+        body: payload.data.body,
+      }));
+      setRewriteState({ status: "success", model: payload.data.model });
+      setSendState({ status: "editing" });
+    } catch (error) {
+      setRewriteState({
+        status: "error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Le message ne peut pas être amélioré.",
+      });
+    }
   }
 
   return (
@@ -509,6 +568,58 @@ export function EmailComposer({
                   placeholder="Écrivez votre message…"
                 />
               </div>
+
+              {deliveryMode === "gmail" ? (
+                <section
+                  aria-labelledby="rewrite-title"
+                  className="rounded-2xl border border-blue-200 bg-blue-50 p-4"
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-blue-100 text-blue-800">
+                      <MailboxIcon name="sparkles" className="size-5" />
+                    </div>
+                    <div>
+                      <h3 id="rewrite-title" className="font-semibold text-blue-950">
+                        Améliorer le brouillon
+                      </h3>
+                      <p className="mt-1 text-sm leading-6 text-blue-900">
+                        Groq peut corriger ou reformuler ce texte sans changer les faits.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {Object.entries(REWRITE_LABELS).map(([action, label]) => (
+                      <button
+                        key={action}
+                        type="button"
+                        onClick={() => void rewriteWithAi(action as AiRewriteAction)}
+                        disabled={!message.body.trim() || rewriteState.status === "loading"}
+                        className="inline-flex min-h-11 cursor-pointer items-center justify-center rounded-xl border border-blue-200 bg-white px-3 text-sm font-semibold text-blue-900 transition-colors duration-200 hover:bg-blue-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-900 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {rewriteState.status === "loading" &&
+                        rewriteState.action === action
+                          ? "Traitement…"
+                          : label}
+                      </button>
+                    ))}
+                  </div>
+                  <p
+                    aria-live="polite"
+                    className={`mt-3 text-xs leading-5 ${
+                      rewriteState.status === "error" ? "text-red-800" : "text-blue-800"
+                    }`}
+                  >
+                    {rewriteState.status === "idle" &&
+                      (writingStyle
+                        ? "Votre style personnel sera pris en compte."
+                        : "Le texte reste modifiable avant la confirmation d'envoi.")}
+                    {rewriteState.status === "loading" && "Amélioration en cours…"}
+                    {rewriteState.status === "success" &&
+                      `Brouillon amélioré avec ${rewriteState.model}.`}
+                    {rewriteState.status === "error" && rewriteState.message}
+                  </p>
+                </section>
+              ) : null}
 
               {deliveryMode === "gmail" ? (
                 <section

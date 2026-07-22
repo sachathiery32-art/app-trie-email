@@ -5,6 +5,20 @@ réponses, transferts, pièces jointes, dossiers et actions sur les libellés. C
 feuille de route décrit ce qui reste nécessaire pour passer de cette connexion
 directe à un SaaS multi-utilisateur synchronisé en permanence.
 
+## État de la version personnelle
+
+Le périmètre personnel est terminé côté développement : connexion OAuth limitée à
+une adresse autorisée, navigation Gmail, recherche, lecture, envoi, réponses,
+transferts, pièces jointes, dossiers, libellés et synchronisation lorsque le site
+est ouvert. L'assistant Groq ajoute l'analyse de conversations, les tâches et
+échéances, les propositions de réponse, la reformulation, la recherche en langage
+naturel, le tri par lots et l'analyse de documents texte/PDF.
+
+Les quatre limites assumées sont : aucune synchronisation lorsque le site est
+fermé, aucun OCR des images, aucun brouillon enregistré sur Gmail et aucune
+intégration Drive/Agenda. Elles ne bloquent pas l'usage personnel actuel, mais
+relèvent du chantier SaaS ou de permissions Google supplémentaires.
+
 ## 1. Choisir et autoriser un fournisseur
 
 Pour Gmail, l'application devra utiliser OAuth 2.0 et les permissions les plus
@@ -49,7 +63,7 @@ Le fournisseur remplacera progressivement les opérations fictives :
 
 - récupérer les dossiers, libellés, messages et conversations ;
 - envoyer des messages MIME ;
-- créer et modifier des brouillons ;
+- créer et modifier des brouillons côté serveur Gmail ;
 - répondre et transférer en conservant les en-têtes de conversation ;
 - appliquer les libellés, archiver et déplacer vers la corbeille ;
 - renouveler automatiquement les jetons d'accès ;
@@ -96,7 +110,8 @@ requise. Documentation : [vérification des permissions restreintes](https://dev
 4. Remplacer une seule action fictive : la lecture de dix emails.
 5. Tester, puis ajouter l'envoi d'un email vers une adresse contrôlée.
 6. Ajouter brouillons, réponses, transferts et gestion des libellés. **Réponses,
-   transferts et libellés terminés pour la version personnelle.**
+   transferts et libellés terminés pour la version personnelle ; brouillons Gmail
+   distants réservés à la version SaaS.**
 7. Activer Pub/Sub et la synchronisation automatique.
 8. Réaliser la sécurité, les pages légales et la vérification avant tout accès
    public.

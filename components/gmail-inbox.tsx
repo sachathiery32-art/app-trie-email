@@ -11,10 +11,18 @@ import {
 
 import { signInWithGoogle, signOutFromApp } from "@/app/actions/auth";
 import { EmailComposer } from "@/components/email-composer";
+import { GmailAiAssistant } from "@/components/gmail-ai-assistant";
+import { GmailAiCommandCenter } from "@/components/gmail-ai-command-center";
+import { GmailAttachmentCard } from "@/components/gmail-attachment-card";
 import {
   MailboxIcon,
   type MailboxIconName,
 } from "@/components/mailbox-icon";
+import type {
+  AiUserPreferences,
+  GmailAiTriageItem,
+  GmailAiTriageResponse,
+} from "@/types/ai";
 import type { ComposerMessage, ComposerMode, ComposerSession } from "@/types/email";
 import type {
   GmailInboxData,
@@ -52,6 +60,8 @@ type DetailState =
 
 type Notice = { tone: "success" | "error" | "info"; message: string };
 
+const AI_PREFERENCES_KEY = "email-organizer-ai-preferences-v1";
+
 const VIEW_ITEMS: Array<{
   value: GmailMailboxView;
   label: string;
@@ -82,12 +92,6 @@ function formatFullDate(timestamp: number) {
     dateStyle: "long",
     timeStyle: "short",
   }).format(new Date(timestamp));
-}
-
-function formatFileSize(bytes: number) {
-  if (bytes < 1024) return `${bytes} o`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} Ko`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`;
 }
 
 function withSubjectPrefix(subject: string, prefix: "Re" | "Tr") {
@@ -266,6 +270,7 @@ function MessagePreview({
   actionPending,
   onCompose,
   onAction,
+  onRefresh,
 }: {
   message: GmailMessageSummary | null;
   detail: DetailState;
@@ -275,6 +280,7 @@ function MessagePreview({
   actionPending: boolean;
   onCompose: (session: ComposerSession) => void;
   onAction: (action: GmailModifyAction, labelId?: string) => void;
+  onRefresh: () => void;
 }) {
   if (!message) {
     return (
@@ -284,7 +290,10 @@ function MessagePreview({
     );
   }
 
-  const complete = detail.status === "success" ? detail.data : null;
+  const complete =
+    detail.status === "success" && detail.data.id === message.id
+      ? detail.data
+      : null;
   const userLabels = labels.filter((label) => label.type === "user");
   const appliedUserLabels = userLabels.filter((label) =>
     message.labelIds.includes(label.id),
@@ -462,44 +471,31 @@ function MessagePreview({
           </div>
         ) : null}
 
+        {complete ? (
+          <GmailAiAssistant
+            key={complete.id}
+            message={complete}
+            onUseReply={(body) => {
+              const session = createComposerSession("reply", complete, accountEmail);
+              onCompose({ ...session, body });
+            }}
+            onLabelsApplied={onRefresh}
+          />
+        ) : null}
+
         {complete?.attachments.length ? (
           <section className="mt-8 border-t border-[#e4e4e7] pt-6">
             <h3 className="text-sm font-semibold text-[#18181b]">
               Pièces jointes ({complete.attachments.length})
             </h3>
             <ul className="mt-3 grid gap-2 sm:grid-cols-2">
-              {complete.attachments.map((attachment, index) => {
-                const downloadUrl = attachment.id
-                  ? `/api/gmail/messages/${encodeURIComponent(complete.id)}/attachments/${encodeURIComponent(attachment.id)}?${new URLSearchParams({ filename: attachment.filename })}`
-                  : null;
-                return (
-                  <li
-                    key={`${attachment.filename}-${index}`}
-                    className="flex min-w-0 items-center gap-3 rounded-xl border border-[#e4e4e7] bg-[#fafafa] px-3 py-3"
-                  >
-                    <MailboxIcon name="attachment" className="size-5 shrink-0 text-[#52525b]" />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-semibold text-[#27272a]">
-                        {attachment.filename}
-                      </p>
-                      <p className="mt-1 text-xs text-[#52525b]">
-                        {formatFileSize(attachment.size)}
-                      </p>
-                    </div>
-                    {downloadUrl ? (
-                      <a
-                        href={downloadUrl}
-                        aria-label={`Télécharger ${attachment.filename}`}
-                        className="flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-xl border border-[#d4d4d8] bg-white text-[#3f3f46] transition-colors hover:bg-[#f1f1f3] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563eb]"
-                      >
-                        <MailboxIcon name="download" className="size-4" />
-                      </a>
-                    ) : (
-                      <span className="text-xs text-[#71717a]">Indisponible</span>
-                    )}
-                  </li>
-                );
-              })}
+              {complete.attachments.map((attachment, index) => (
+                <GmailAttachmentCard
+                  key={`${attachment.filename}-${index}`}
+                  messageId={complete.id}
+                  attachment={attachment}
+                />
+              ))}
             </ul>
           </section>
         ) : null}
@@ -521,16 +517,23 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
   const [notice, setNotice] = useState<Notice | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [actionPending, setActionPending] = useState(false);
+  const [isTriageRunning, setIsTriageRunning] = useState(false);
+  const [preferencesHydrated, setPreferencesHydrated] = useState(false);
+  const [aiPreferences, setAiPreferences] = useState<AiUserPreferences>({
+    autoTriage: false,
+    writingStyle: "",
+  });
   const detailCache = useRef(new Map<string, GmailMessageDetail>());
-  const requestInFlight = useRef(false);
+  const inboxRequestSequence = useRef(0);
+  const triageInFlight = useRef(false);
+  const autoTriageSeen = useRef(new Set<string>());
 
   const loadInbox = useCallback(
     async (
       pageToken: string | null,
       options?: { signal?: AbortSignal; silent?: boolean },
     ) => {
-      if (requestInFlight.current) return;
-      requestInFlight.current = true;
+      const requestId = ++inboxRequestSequence.current;
       if (options?.silent) {
         setIsSyncing(true);
       } else {
@@ -548,6 +551,7 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
         });
         const payload = (await response.json()) as GmailInboxResponse;
         if (!response.ok || !payload.success) throw payload;
+        if (requestId !== inboxRequestSequence.current) return;
 
         setState({ status: "success", data: payload.data });
         setSelectedMessageId((current) =>
@@ -556,7 +560,12 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
             : (payload.data.messages[0]?.id ?? null),
         );
       } catch (error) {
-        if (options?.signal?.aborted) return;
+        if (
+          options?.signal?.aborted ||
+          requestId !== inboxRequestSequence.current
+        ) {
+          return;
+        }
         const payload = error as Partial<Extract<GmailInboxResponse, { success: false }>>;
         setState((current) => ({
           status: "error",
@@ -567,8 +576,9 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
           data: current.data,
         }));
       } finally {
-        requestInFlight.current = false;
-        setIsSyncing(false);
+        if (requestId === inboxRequestSequence.current) {
+          setIsSyncing(false);
+        }
       }
     },
     [currentView, search],
@@ -597,6 +607,34 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
       window.removeEventListener("focus", synchronize);
     };
   }, [loadInbox, pageIndex, pageTokens]);
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      try {
+        const stored = window.localStorage.getItem(AI_PREFERENCES_KEY);
+        if (stored) {
+          const value = JSON.parse(stored) as Partial<AiUserPreferences>;
+          setAiPreferences({
+            autoTriage: value.autoTriage === true,
+            writingStyle:
+              typeof value.writingStyle === "string"
+                ? value.writingStyle.slice(0, 500)
+                : "",
+          });
+        }
+      } catch {
+        window.localStorage.removeItem(AI_PREFERENCES_KEY);
+      } finally {
+        setPreferencesHydrated(true);
+      }
+    }, 0);
+    return () => window.clearTimeout(timeoutId);
+  }, []);
+
+  useEffect(() => {
+    if (!preferencesHydrated) return;
+    window.localStorage.setItem(AI_PREFERENCES_KEY, JSON.stringify(aiPreferences));
+  }, [aiPreferences, preferencesHydrated]);
 
   useEffect(() => {
     if (!selectedMessageId) {
@@ -673,6 +711,110 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
     detailCache.current.clear();
     void loadInbox(pageTokens[pageIndex] ?? null);
   }, [loadInbox, pageIndex, pageTokens]);
+
+  const runAiTriage = useCallback(
+    async (
+      messageIds: string[],
+      options?: { automatic?: boolean },
+    ): Promise<GmailAiTriageItem[]> => {
+      if (triageInFlight.current) {
+        throw new Error("Un classement IA est déjà en cours.");
+      }
+      const ids = [...new Set(messageIds)].slice(0, 10);
+      if (!ids.length) return [];
+
+      triageInFlight.current = true;
+      setIsTriageRunning(true);
+      try {
+        const response = await fetch("/api/gmail/ai/triage", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ messageIds: ids, applyLabels: true }),
+        });
+        const payload = (await response.json()) as GmailAiTriageResponse;
+        if (!response.ok || !payload.success) {
+          throw new Error(payload.success ? "Classement incomplet." : payload.error);
+        }
+
+        detailCache.current.clear();
+        setNotice({
+          tone: "success",
+          message: options?.automatic
+            ? `${payload.data.items.length} nouveau(x) message(s) classé(s) automatiquement.`
+            : `${payload.data.items.length} message(s) classé(s) et synchronisé(s) avec Gmail.`,
+        });
+        await loadInbox(pageTokens[pageIndex] ?? null, { silent: true });
+        return payload.data.items;
+      } finally {
+        triageInFlight.current = false;
+        setIsTriageRunning(false);
+      }
+    },
+    [loadInbox, pageIndex, pageTokens],
+  );
+
+  useEffect(() => {
+    if (
+      !preferencesHydrated ||
+      !aiPreferences.autoTriage ||
+      state.status !== "success" ||
+      currentView !== "inbox" ||
+      isTriageRunning
+    ) {
+      return;
+    }
+
+    const categoryLabelIds = new Set(
+      state.data.labels
+        .filter((label) => label.name.startsWith("AI/Catégorie/"))
+        .map((label) => label.id),
+    );
+    const candidates = state.data.messages
+      .filter(
+        (message) =>
+          message.labelIds.includes("INBOX") &&
+          !message.labelIds.some((labelId) => categoryLabelIds.has(labelId)) &&
+          !autoTriageSeen.current.has(message.id),
+      )
+      .slice(0, 5)
+      .map((message) => message.id);
+    if (!candidates.length) return;
+
+    candidates.forEach((id) => autoTriageSeen.current.add(id));
+    const timeoutId = window.setTimeout(() => {
+      void runAiTriage(candidates, { automatic: true }).catch((error) => {
+        candidates.forEach((id) => autoTriageSeen.current.delete(id));
+        setNotice({
+          tone: "error",
+          message:
+            error instanceof Error
+              ? error.message
+              : "Le tri automatique n’a pas pu être effectué.",
+        });
+      });
+    }, 600);
+    return () => window.clearTimeout(timeoutId);
+  }, [
+    aiPreferences.autoTriage,
+    currentView,
+    isTriageRunning,
+    preferencesHydrated,
+    runAiTriage,
+    state,
+  ]);
+
+  function applyGmailQuery(query: string) {
+    const cleanQuery = query.trim();
+    if (!cleanQuery) return;
+    setCurrentView("all");
+    setSearchInput(cleanQuery);
+    setSearch(cleanQuery);
+    setPageIndex(0);
+    setPageTokens([null]);
+    setSelectedMessageId(null);
+    setDetailState({ status: "idle" });
+    detailCache.current.clear();
+  }
 
   async function performAction(action: GmailModifyAction, labelId?: string) {
     if (!selectedMessage || actionPending) return;
@@ -848,6 +990,32 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
               })}
             </nav>
 
+            {data?.labels.some((label) => label.name.startsWith("AI/Catégorie/")) ? (
+              <div className="mt-4 border-t border-[#e4e4e7] pt-4">
+                <p className="px-3 text-xs font-semibold uppercase tracking-[0.08em] text-[#71717a]">
+                  Catégories IA
+                </p>
+                <div className="mt-2 grid gap-1">
+                  {data.labels
+                    .filter((label) => label.name.startsWith("AI/Catégorie/"))
+                    .slice(0, 8)
+                    .map((label) => (
+                      <button
+                        key={label.id}
+                        type="button"
+                        onClick={() => applyGmailQuery(`label:"${label.name}"`)}
+                        className="flex min-h-11 cursor-pointer items-center gap-2 rounded-xl px-3 text-left text-sm font-semibold text-[#52525b] transition-colors hover:bg-[#f4f4f5] hover:text-[#18181b] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563eb]"
+                      >
+                        <MailboxIcon name="label" className="size-4 shrink-0 text-blue-700" />
+                        <span className="truncate">
+                          {label.name.replace("AI/Catégorie/", "")}
+                        </span>
+                      </button>
+                    ))}
+                </div>
+              </div>
+            ) : null}
+
             <div className="mt-4 hidden border-t border-[#e4e4e7] pt-4 text-xs leading-5 text-[#71717a] lg:block">
               <p className="font-semibold text-[#52525b]">Synchronisation automatique</p>
               <p className="mt-1">Toutes les 60 secondes tant que le site est ouvert, puis à chaque retour sur l’onglet.</p>
@@ -914,6 +1082,15 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
               ) : null}
             </section>
 
+            <GmailAiCommandCenter
+              messages={data?.messages ?? []}
+              isTriageRunning={isTriageRunning}
+              onTriage={runAiTriage}
+              onApplyGmailQuery={applyGmailQuery}
+              preferences={aiPreferences}
+              onPreferencesChange={setAiPreferences}
+            />
+
             {notice ? (
               <div
                 role={notice.tone === "error" ? "alert" : "status"}
@@ -973,7 +1150,10 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
                           key={message.id}
                           message={message}
                           selected={message.id === selectedMessage?.id}
-                          onSelect={() => setSelectedMessageId(message.id)}
+                          onSelect={() => {
+                            setSelectedMessageId(message.id);
+                            setDetailState({ status: "idle" });
+                          }}
                         />
                       ))}
                     </div>
@@ -987,6 +1167,7 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
                         actionPending={actionPending}
                         onCompose={setComposerSession}
                         onAction={(action, labelId) => void performAction(action, labelId)}
+                        onRefresh={refreshInbox}
                       />
                     </div>
                   </div>
@@ -1012,6 +1193,7 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
           deliveryMode="gmail"
           senderEmail={user.email}
           session={composerSession}
+          writingStyle={aiPreferences.writingStyle}
           onClose={() => setComposerSession(null)}
           onSend={sendMessage}
         />

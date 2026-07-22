@@ -55,6 +55,11 @@ type GmailRawMessageResponse = {
   };
 };
 
+type GmailThreadResponse = {
+  id?: string;
+  messages?: GmailRawMessageResponse[];
+};
+
 type GmailSendApiResponse = {
   id?: string;
   threadId?: string;
@@ -224,6 +229,62 @@ function normalizeLabel(label: GmailLabelResponse): GmailLabelSummary | null {
   };
 }
 
+/** Retourne les libellés système et personnels du compte. */
+export async function listGmailLabels(accessToken: string) {
+  const url = new URL(`${GMAIL_API_BASE}/users/me/labels`);
+  const response = await gmailRequest<GmailLabelsListResponse>(url, accessToken);
+  return (response.labels ?? [])
+    .map(normalizeLabel)
+    .filter((label): label is GmailLabelSummary => Boolean(label));
+}
+
+async function createGmailLabel(accessToken: string, name: string) {
+  const url = new URL(`${GMAIL_API_BASE}/users/me/labels`);
+  const label = await gmailRequest<GmailLabelResponse>(url, accessToken, {
+    method: "POST",
+    body: {
+      name,
+      labelListVisibility: "labelShow",
+      messageListVisibility: "show",
+    },
+  });
+  const normalized = normalizeLabel(label);
+  if (!normalized) throw new GmailApiError(502);
+  return normalized;
+}
+
+/** Crée uniquement les libellés absents et retourne leur version Gmail. */
+export async function ensureGmailLabels(
+  accessToken: string,
+  names: string[],
+) {
+  let labels = await listGmailLabels(accessToken);
+  const result: GmailLabelSummary[] = [];
+
+  for (const name of [...new Set(names)]) {
+    let label = labels.find(
+      (candidate) => candidate.name.toLocaleLowerCase("fr-FR") === name.toLocaleLowerCase("fr-FR"),
+    );
+    if (!label) {
+      try {
+        label = await createGmailLabel(accessToken, name);
+        labels = [...labels, label];
+      } catch (error) {
+        // Une création concurrente peut gagner la course : relire avant d'échouer.
+        labels = await listGmailLabels(accessToken);
+        label = labels.find(
+          (candidate) =>
+            candidate.name.toLocaleLowerCase("fr-FR") ===
+            name.toLocaleLowerCase("fr-FR"),
+        );
+        if (!label) throw error;
+      }
+    }
+    result.push(label);
+  }
+  return result;
+}
+
 /** Charge une page d'une vue Gmail ainsi que les libellés disponibles. */
 export async function listGmailMailboxPage(
   accessToken: string,
@@ -253,11 +314,10 @@ export async function listGmailMailboxPage(
   }
 
   const profileUrl = new URL(`${GMAIL_API_BASE}/users/me/profile`);
-  const labelsUrl = new URL(`${GMAIL_API_BASE}/users/me/labels`);
-  const [list, profile, labelsResponse] = await Promise.all([
+  const [list, profile, labels] = await Promise.all([
     gmailRequest<GmailListResponse>(listUrl, accessToken),
     gmailRequest<GmailProfileResponse>(profileUrl, accessToken),
-    gmailRequest<GmailLabelsListResponse>(labelsUrl, accessToken),
+    listGmailLabels(accessToken),
   ]);
 
   const messageIds = (list.messages ?? [])
@@ -286,9 +346,7 @@ export async function listGmailMailboxPage(
     hasMore: Boolean(list.nextPageToken),
     nextPageToken: list.nextPageToken,
     messages,
-    labels: (labelsResponse.labels ?? [])
-      .map(normalizeLabel)
-      .filter((label): label is GmailLabelSummary => Boolean(label)),
+    labels,
     syncedAt: new Date().toISOString(),
   };
 }
@@ -375,17 +433,9 @@ function collectAttachments(
   return attachments;
 }
 
-/** Charge le contenu complet d'un message sans modifier son état dans Gmail. */
-export async function getGmailMessage(
-  accessToken: string,
-  messageId: string,
-): Promise<GmailMessageDetail> {
-  const url = new URL(
-    `${GMAIL_API_BASE}/users/me/messages/${encodeURIComponent(messageId)}`,
-  );
-  url.searchParams.set("format", "full");
-
-  const message = await gmailRequest<GmailRawMessageResponse>(url, accessToken);
+function normalizeMessageDetail(
+  message: GmailRawMessageResponse,
+): GmailMessageDetail {
   const summary = normalizeMessage(message);
   const headers = message.payload?.headers;
 
@@ -398,6 +448,61 @@ export async function getGmailMessage(
     messageIdHeader: headerValue(headers, "message-id"),
     references: headerValue(headers, "references"),
   };
+}
+
+/** Charge le contenu complet d'un message sans modifier son état dans Gmail. */
+export async function getGmailMessage(
+  accessToken: string,
+  messageId: string,
+): Promise<GmailMessageDetail> {
+  const url = new URL(
+    `${GMAIL_API_BASE}/users/me/messages/${encodeURIComponent(messageId)}`,
+  );
+  url.searchParams.set("format", "full");
+
+  const message = await gmailRequest<GmailRawMessageResponse>(url, accessToken);
+  return normalizeMessageDetail(message);
+}
+
+/** Charge tous les messages d'une conversation Gmail dans l'ordre. */
+export async function getGmailThread(
+  accessToken: string,
+  threadId: string,
+) {
+  const url = new URL(
+    `${GMAIL_API_BASE}/users/me/threads/${encodeURIComponent(threadId)}`,
+  );
+  url.searchParams.set("format", "full");
+  const thread = await gmailRequest<GmailThreadResponse>(url, accessToken);
+  return (thread.messages ?? [])
+    .map(normalizeMessageDetail)
+    .filter((message) => message.id);
+}
+
+/** Recherche dans Gmail puis charge le contenu des premiers résultats. */
+export async function searchGmailMessages(
+  accessToken: string,
+  query: string,
+  maxResults = 8,
+) {
+  const url = new URL(`${GMAIL_API_BASE}/users/me/messages`);
+  url.searchParams.set("q", query);
+  url.searchParams.set("maxResults", String(Math.min(Math.max(maxResults, 1), 20)));
+  url.searchParams.set("includeSpamTrash", "false");
+  const result = await gmailRequest<GmailListResponse>(url, accessToken);
+  const ids = (result.messages ?? [])
+    .map((message) => message.id)
+    .filter((id): id is string => Boolean(id));
+
+  const messages: GmailMessageDetail[] = [];
+  for (let index = 0; index < ids.length; index += 5) {
+    messages.push(
+      ...(await Promise.all(
+        ids.slice(index, index + 5).map((id) => getGmailMessage(accessToken, id)),
+      )),
+    );
+  }
+  return messages;
 }
 
 function splitRecipients(value: string) {
@@ -683,6 +788,59 @@ export async function modifyGmailMessage(
     method: "POST",
     body: changes[action],
   });
+}
+
+/** Ajoute et retire plusieurs libellés Gmail en un seul appel. */
+export async function setGmailMessageLabels(
+  accessToken: string,
+  messageId: string,
+  changes: { addLabelIds?: string[]; removeLabelIds?: string[] },
+) {
+  const url = new URL(
+    `${GMAIL_API_BASE}/users/me/messages/${encodeURIComponent(messageId)}/modify`,
+  );
+  await gmailRequest<GmailRawMessageResponse>(url, accessToken, {
+    method: "POST",
+    body: {
+      addLabelIds: [...new Set(changes.addLabelIds ?? [])],
+      removeLabelIds: [...new Set(changes.removeLabelIds ?? [])],
+    },
+  });
+}
+
+/** Remplace uniquement les familles de libellés IA sans toucher aux autres. */
+export async function applyGmailOrganizationLabels(
+  accessToken: string,
+  messageId: string,
+  desiredNames: string[],
+  managedPrefixes: string[],
+) {
+  const desiredLabels = await ensureGmailLabels(accessToken, desiredNames);
+  const [allLabels, message] = await Promise.all([
+    listGmailLabels(accessToken),
+    getGmailMessage(accessToken, messageId),
+  ]);
+  const desiredIds = new Set(desiredLabels.map((label) => label.id));
+  const managedIds = new Set(
+    allLabels
+      .filter((label) =>
+        managedPrefixes.some((prefix) => label.name.startsWith(prefix)),
+      )
+      .map((label) => label.id),
+  );
+  const currentIds = new Set(message.labelIds);
+  const addLabelIds = [...desiredIds].filter((id) => !currentIds.has(id));
+  const removeLabelIds = message.labelIds.filter(
+    (id) => managedIds.has(id) && !desiredIds.has(id),
+  );
+
+  if (addLabelIds.length || removeLabelIds.length) {
+    await setGmailMessageLabels(accessToken, messageId, {
+      addLabelIds,
+      removeLabelIds,
+    });
+  }
+  return desiredLabels.map((label) => label.name);
 }
 
 /** Télécharge une pièce jointe encodée en base64url par Gmail. */

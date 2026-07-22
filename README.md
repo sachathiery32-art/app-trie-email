@@ -16,7 +16,18 @@ la boîte Gmail depuis une interface secondaire.
 - nouveau message, réponse, réponse à tous et transfert rattaché au fil Gmail ;
 - ajout de dix pièces jointes maximum, pour 3 Mo au total ;
 - modification lu/non lu, favoris, archivage, corbeille, restauration et libellés ;
-- rédaction Groq d'un nouveau message ou d'une réponse réelle ;
+- rédaction Groq d'un nouveau message ou d'une réponse réelle, puis correction,
+  réduction, développement et changement de ton du brouillon ;
+- analyse d'une conversation : résumé, catégorie, priorité, réponse attendue,
+  actions, échéances, risques et propositions de réponse ;
+- classement manuel ou automatique par libellés Gmail `AI/Catégorie`,
+  `AI/Priorité` et `AI/Action` ;
+- recherche en langage naturel avec réponse synthétique, sources visibles et
+  traduction automatique en requête Gmail ;
+- analyse des PDF contenant du texte et des fichiers TXT, CSV, JSON, XML, RTF,
+  Markdown ou journaux jusqu'à 3 Mo ;
+- mémorisation locale et facultative du style de rédaction et du choix de tri
+  automatique ;
 - synchronisation toutes les 60 secondes lorsque le site est ouvert, au retour
   sur l'onglet et à chaque nouvelle visite ;
 - interface responsive et accessible au clavier.
@@ -36,11 +47,24 @@ code pour les prochaines étapes, mais l'accueil utilise désormais Gmail réel.
 - `app/api/gmail/messages/[messageId]/modify` applique les actions Gmail ;
 - `app/api/gmail/messages/[messageId]/attachments/[attachmentId]` transmet une
   pièce jointe sans exposer le jeton Google ;
+- `app/api/gmail/ai/analyze` analyse une conversation complète ;
+- `app/api/gmail/ai/triage` classe un lot de dix messages maximum et peut créer
+  les libellés correspondants dans Gmail ;
+- `app/api/gmail/ai/search` convertit une question en requête Gmail puis produit
+  une réponse reliée à ses messages sources ;
+- `app/api/gmail/ai/rewrite` reformule un brouillon en conservant ses faits ;
+- `app/api/gmail/ai/attachment` extrait et analyse le texte d'un document joint ;
 - `auth.ts` centralise le fournisseur Google, la liste blanche et les jetons ;
 - `components/gmail-inbox.tsx` affiche la boîte Gmail réelle ;
+- `components/gmail-ai-command-center.tsx` regroupe recherche, tri et préférences IA ;
+- `components/gmail-ai-assistant.tsx` présente l'analyse d'une conversation ;
+- `components/gmail-attachment-card.tsx` télécharge et analyse les documents ;
 - `lib/google-oauth.ts` renouvelle le jeton d'accès sans exposer les secrets ;
 - `lib/google-session.ts` déchiffre et contrôle la session côté serveur ;
 - `lib/gmail.ts` centralise les appels et la normalisation Gmail ;
+- `lib/ai-config.ts` centralise le modèle, les limites et la règle de protection
+  contre les instructions malveillantes contenues dans un email ;
+- `lib/ai-labels.ts` centralise la création et l'application des libellés IA ;
 - `components/email-sorting-dashboard.tsx` conserve l'interface de démonstration ;
 - `components/email-composer.tsx` gère la rédaction, les brouillons et
   l'assistance IA ;
@@ -48,12 +72,14 @@ code pour les prochaines étapes, mais l'accueil utilise désormais Gmail réel.
 - `lib/demo-emails.ts` contient le jeu de données de démonstration ;
 - `lib/groq.ts` centralise l'unique client Groq côté serveur ;
 - `lib/ai-rate-limit.ts` limite les appels IA par adresse réseau ;
-- `types/email.ts` définit les contrats TypeScript partagés.
+- `types/ai.ts`, `types/email.ts` et `types/gmail.ts` définissent les contrats
+  TypeScript partagés.
 
-La classification IA reste limitée au jeu de démonstration. La réponse IA accepte
-un message Gmail réel après validation de la session. Toutes les routes IA
-appliquent une limitation légère du nombre de requêtes. Une production
-multi-instance devra remplacer cette limite locale par un stockage partagé.
+Les fonctions IA Gmail exigent toutes une session Google autorisée et appliquent
+une limitation légère du nombre de requêtes. Les sorties structurées sont validées
+avant toute utilisation. Un email ou une pièce jointe est toujours considéré comme
+une donnée non fiable : son texte ne peut pas donner d'instructions au modèle. Une
+production multi-instance devra remplacer la limite locale par un stockage partagé.
 
 ## Installation
 
@@ -90,9 +116,16 @@ donc lorsque le site est ouvert ; à la prochaine visite, la boîte est recharg�
 depuis Gmail. Une synchronisation serveur permanente, même site fermé, exigera
 PostgreSQL, Google Cloud Pub/Sub et une tâche de renouvellement de `watch`.
 
-La limite de 3 Mo par requête/téléchargement vient de l'hébergement Vercel actuel,
-pas de Gmail. Les brouillons Gmail côté serveur, les conversations regroupées et
-la synchronisation Pub/Sub restent à développer pour une version SaaS publique.
+La limite de 3 Mo par requête/téléchargement vient de l'hébergement actuel, pas de
+Gmail. L'analyse documentaire ne fait pas d'OCR : une image ou un PDF scanné sans
+texte n'est donc pas analysé. Les préférences IA sont conservées uniquement dans
+le navigateur ; elles ne suivent pas l'utilisateur sur un autre appareil.
+
+Cette version personnelle ne crée pas encore de brouillons sur les serveurs Gmail
+et n'intègre ni Google Drive ni Google Agenda. Ces fonctions demanderaient des
+permissions OAuth supplémentaires. La synchronisation Pub/Sub, PostgreSQL,
+l'isolation multi-utilisateur, la vérification Google et les pages légales restent
+nécessaires uniquement pour transformer cette version personnelle en SaaS public.
 
 Le plan technique et les interventions nécessaires sont détaillés dans
 [`docs/PRODUCTION-ROADMAP.md`](docs/PRODUCTION-ROADMAP.md).

@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import { GROQ_MODEL } from "@/lib/ai-config";
 import { checkAiRateLimit } from "@/lib/ai-rate-limit";
 import { aiSessionError } from "@/lib/ai-session";
 import { findDemoEmail } from "@/lib/demo-emails";
@@ -112,7 +113,7 @@ export async function POST(request: NextRequest) {
         })();
 
     const completion = await groq.chat.completions.create({
-      model: "openai/gpt-oss-20b",
+      model: GROQ_MODEL,
       messages: [
         {
           role: "system",
