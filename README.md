@@ -1,8 +1,8 @@
 # Email Organizer AI
 
-Pilote personnel de messagerie construit avec Next.js et Groq. Cette version
-utilise exclusivement des emails fictifs et ne se connecte à aucun fournisseur
-de messagerie.
+Pilote personnel de messagerie construit avec Next.js, Auth.js et Groq. La
+connexion Google est réelle et limitée à une adresse autorisée, mais les emails
+affichés restent fictifs pour valider chaque étape séparément.
 
 ## Fonctionnalités
 
@@ -16,6 +16,7 @@ de messagerie.
 - classification d'un email fictif avec Groq ;
 - archivage, restauration, suppression, favoris et état lu/non lu ;
 - sauvegarde automatique des changements dans le `localStorage` du navigateur ;
+- connexion Google OAuth avec liste blanche côté serveur ;
 - réinitialisation complète de la démonstration ;
 - interface responsive et accessible au clavier.
 
@@ -29,6 +30,8 @@ domaine réservé `.example`.
 - `app/api/draft-reply` génère un brouillon de réponse à partir d'un email
   fictif ;
 - `app/api/draft-message` génère un nouveau message à partir d'une consigne ;
+- `app/api/auth/[...nextauth]` reçoit les requêtes OAuth et le callback Google ;
+- `auth.ts` centralise le fournisseur Google et la liste blanche ;
 - `components/email-sorting-dashboard.tsx` orchestre l'interface de messagerie ;
 - `components/email-composer.tsx` gère la rédaction, les brouillons et
   l'assistance IA ;
@@ -45,10 +48,14 @@ multi-instance devra remplacer cette limite locale par un stockage partagé.
 
 ## Installation
 
-Créer `.env.local` à la racine :
+Copier `.env.example` vers `.env.local`, puis renseigner :
 
 ```env
 GROQ_API_KEY=votre_cle_groq
+AUTH_SECRET=une_valeur_aleatoire_longue
+AUTH_GOOGLE_ID=id_client_google
+AUTH_GOOGLE_SECRET=secret_client_google
+ALLOWED_GOOGLE_EMAIL=adresse_autorisee
 ```
 
 Puis lancer :
@@ -62,16 +69,15 @@ Ouvrir [http://localhost:3000](http://localhost:3000).
 
 ## Déploiement Vercel
 
-Ajouter uniquement `GROQ_API_KEY` dans les variables d'environnement Vercel.
-La clé reste sur le serveur et n'est jamais incluse dans le JavaScript envoyé au
-navigateur.
+Ajouter les cinq variables précédentes dans les variables d'environnement
+Vercel. Elles restent sur le serveur et ne sont jamais incluses dans le
+JavaScript envoyé au navigateur.
 
 ## Limites de cette version
 
-Cette démonstration ne peut pas lire ou modifier une vraie boîte Gmail, envoyer
-un vrai message, recevoir de nouveaux emails ou synchroniser plusieurs appareils.
-Ces fonctions nécessitent une autorisation officielle du fournisseur de
-messagerie, une base de données et une authentification utilisateur.
+Cette étape valide uniquement l'identité Google. Elle ne peut pas encore lire ou
+modifier la boîte Gmail, envoyer un vrai message ou recevoir de nouveaux emails.
+Ces actions seront branchées une par une après le test de connexion.
 
 Le plan technique et les interventions nécessaires sont détaillés dans
 [`docs/PRODUCTION-ROADMAP.md`](docs/PRODUCTION-ROADMAP.md).

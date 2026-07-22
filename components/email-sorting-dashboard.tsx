@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { signOutFromApp } from "@/app/actions/auth";
 import { EmailComposer } from "@/components/email-composer";
 import {
   MailboxIcon,
@@ -87,6 +88,11 @@ type Toast = {
   message: string;
 };
 
+type AuthenticatedUser = {
+  name?: string | null;
+  email: string;
+};
+
 function CategoryBadge({ category }: { category: EmailCategory }) {
   return (
     <span
@@ -151,7 +157,7 @@ function formatCurrentTime() {
   }).format(new Date());
 }
 
-export function EmailSortingDashboard() {
+export function EmailSortingDashboard({ user }: { user: AuthenticatedUser }) {
   const { emails, setEmails, resetMailbox, isHydrated } = useDemoMailbox();
   const [activeView, setActiveView] = useState<MailboxView>("inbox");
   const [selectedEmailId, setSelectedEmailId] = useState("demo-1");
@@ -511,9 +517,14 @@ export function EmailSortingDashboard() {
               <span className="size-2 rounded-full bg-amber-500" />
               Actions simulées
             </span>
-            <span className="hidden text-xs text-[#667085] lg:inline">
-              {isHydrated ? "Sauvegarde locale active" : "Chargement local…"}
-            </span>
+            <div className="hidden text-right lg:block">
+              <p className="max-w-52 truncate text-xs font-semibold text-[#252b37]">
+                {user.name || "Compte Google connecté"}
+              </p>
+              <p className="max-w-52 truncate text-xs text-[#667085]">
+                {isHydrated ? user.email : "Chargement local…"}
+              </p>
+            </div>
             <button
               type="button"
               onClick={resetDemo}
@@ -521,6 +532,14 @@ export function EmailSortingDashboard() {
             >
               Réinitialiser
             </button>
+            <form action={signOutFromApp}>
+              <button
+                type="submit"
+                className="inline-flex min-h-11 cursor-pointer items-center justify-center rounded-xl border border-[#d9dce2] bg-white px-3 text-sm font-semibold text-[#4d5768] transition-colors duration-200 hover:border-[#aeb4bf] hover:bg-[#f7f7f8] hover:text-[#171717] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#171717]"
+              >
+                Déconnexion
+              </button>
+            </form>
           </div>
         </div>
       </header>
@@ -612,11 +631,11 @@ export function EmailSortingDashboard() {
               <MailboxIcon name="sparkles" className="size-4" />
             </div>
             <p className="mt-4 text-sm font-semibold text-[#252b37]">
-              Démonstration personnelle
+              Compte Google connecté
             </p>
             <p className="mt-1 text-xs leading-5 text-[#667085]">
-              Les messages, envois et changements restent dans ce navigateur.
-              Aucun compte réel n’est connecté.
+              La connexion est réelle. Les messages et actions restent encore
+              fictifs jusqu’au prochain test Gmail.
             </p>
           </div>
         </aside>
@@ -626,7 +645,7 @@ export function EmailSortingDashboard() {
             <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
               <div>
                 <p className="text-sm font-semibold text-[#2563eb]">
-                  Espace personnel fictif
+                  Espace personnel connecté
                 </p>
                 <h1
                   id="dashboard-title"
@@ -635,8 +654,9 @@ export function EmailSortingDashboard() {
                   Pilotez votre messagerie.
                 </h1>
                 <p className="mt-3 max-w-2xl text-sm leading-6 text-[#667085] sm:text-base">
-                  Rédigez, répondez, transférez et organisez vos messages. Chaque
-                  action est simulée et peut être réinitialisée.
+                  Votre session Google est active. Pour cette première étape,
+                  les messages et les actions restent simulés afin de tester la
+                  connexion avant de lire Gmail.
                 </p>
               </div>
               <button

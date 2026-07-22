@@ -1,6 +1,29 @@
+import { auth } from "@/auth";
 import { EmailSortingDashboard } from "@/components/email-sorting-dashboard";
+import { GoogleSignIn } from "@/components/google-sign-in";
 
-/** Page d'accueil de la démonstration personnelle, sans compte utilisateur. */
-export default function Home() {
-  return <EmailSortingDashboard />;
+type HomePageProps = {
+  searchParams: Promise<{ error?: string | string[] }>;
+};
+
+/**
+ * La page reste côté serveur : aucun contenu de la boîte n'est rendu avant la
+ * validation de la session Google.
+ */
+export default async function Home({ searchParams }: HomePageProps) {
+  const [session, params] = await Promise.all([auth(), searchParams]);
+
+  if (!session?.user?.email) {
+    const error = Array.isArray(params.error) ? params.error[0] : params.error;
+    return <GoogleSignIn error={error} />;
+  }
+
+  return (
+    <EmailSortingDashboard
+      user={{
+        name: session.user.name,
+        email: session.user.email,
+      }}
+    />
+  );
 }
