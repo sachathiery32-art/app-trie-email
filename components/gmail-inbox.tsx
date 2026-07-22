@@ -1,15 +1,20 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-
 import {
-  signInWithGoogle,
-  signOutFromApp,
-} from "@/app/actions/auth";
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+
+import { signInWithGoogle, signOutFromApp } from "@/app/actions/auth";
 import { MailboxIcon } from "@/components/mailbox-icon";
 import type {
   GmailInboxData,
   GmailInboxResponse,
+  GmailMessageDetail,
+  GmailMessageResponse,
   GmailMessageSummary,
 } from "@/types/gmail";
 
@@ -27,6 +32,12 @@ type InboxState =
       reconnect: boolean;
       data?: GmailInboxData;
     };
+
+type DetailState =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "success"; data: GmailMessageDetail }
+  | { status: "error"; message: string };
 
 function formatMessageDate(timestamp: number) {
   const date = new Date(timestamp);
@@ -47,6 +58,16 @@ function formatFullDate(timestamp: number) {
   }).format(new Date(timestamp));
 }
 
+function formatFileSize(bytes: number) {
+  if (bytes < 1024) {
+    return `${bytes} o`;
+  }
+  if (bytes < 1024 * 1024) {
+    return `${Math.round(bytes / 1024)} Ko`;
+  }
+  return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`;
+}
+
 function LoadingInbox() {
   return (
     <div aria-live="polite" aria-busy="true" className="p-4 sm:p-6">
@@ -57,7 +78,7 @@ function LoadingInbox() {
         {[1, 2, 3, 4, 5].map((item) => (
           <div
             key={item}
-            className="h-24 animate-pulse rounded-2xl bg-[#f1f1f3]"
+            className="h-24 animate-pulse rounded-2xl bg-[#f1f1f3] motion-reduce:animate-none"
           />
         ))}
       </div>
@@ -72,11 +93,11 @@ function EmptyInbox() {
         <MailboxIcon name="inbox" className="size-6" />
       </div>
       <h2 className="mt-5 text-lg font-semibold text-[#18181b]">
-        Aucun message dans la boîte de réception
+        Aucun message sur cette page
       </h2>
       <p className="mt-2 max-w-sm text-sm leading-6 text-[#52525b]">
-        La connexion Gmail fonctionne, mais aucun message ne correspond à cette
-        première vue.
+        Gmail est bien connecté, mais cette page de réception ne contient aucun
+        message.
       </p>
     </div>
   );
@@ -143,27 +164,35 @@ function MessageRow({
   );
 }
 
-function MessagePreview({ message }: { message: GmailMessageSummary | null }) {
+function MessagePreview({
+  message,
+  detail,
+}: {
+  message: GmailMessageSummary | null;
+  detail: DetailState;
+}) {
   if (!message) {
     return (
       <div className="flex min-h-96 items-center justify-center p-8 text-center text-sm text-[#71717a]">
-        Sélectionnez un message pour afficher son aperçu.
+        Sélectionnez un message pour afficher son contenu.
       </div>
     );
   }
 
+  const completeMessage = detail.status === "success" ? detail.data : null;
+
   return (
     <article className="p-5 sm:p-8">
       <div className="flex flex-wrap items-center gap-2">
-        {message.isUnread ? (
-          <span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-800">
-            Non lu
-          </span>
-        ) : (
-          <span className="rounded-full bg-[#f1f1f3] px-2.5 py-1 text-xs font-semibold text-[#52525b]">
-            Lu
-          </span>
-        )}
+        <span
+          className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+            message.isUnread
+              ? "bg-blue-50 text-blue-800"
+              : "bg-[#f1f1f3] text-[#52525b]"
+          }`}
+        >
+          {message.isUnread ? "Non lu" : "Lu"}
+        </span>
         {message.isImportant ? (
           <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-900">
             Important
@@ -185,6 +214,14 @@ function MessagePreview({ message }: { message: GmailMessageSummary | null }) {
         <dd className="min-w-0 break-words text-[#18181b]">
           {message.recipients || "Destinataire non indiqué"}
         </dd>
+        {completeMessage?.cc ? (
+          <>
+            <dt className="font-semibold text-[#52525b]">Copie</dt>
+            <dd className="min-w-0 break-words text-[#18181b]">
+              {completeMessage.cc}
+            </dd>
+          </>
+        ) : null}
         <dt className="font-semibold text-[#52525b]">Reçu</dt>
         <dd className="text-[#18181b]">
           <time dateTime={new Date(message.receivedAt).toISOString()}>
@@ -193,17 +230,57 @@ function MessagePreview({ message }: { message: GmailMessageSummary | null }) {
         </dd>
       </dl>
 
-      <div className="mt-8">
+      <div className="mt-8" aria-live="polite">
         <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#71717a]">
-          Aperçu Gmail
+          Contenu du message
         </p>
-        <p className="mt-4 whitespace-pre-wrap text-base leading-7 text-[#27272a]">
-          {message.snippet}
-        </p>
-        <p className="mt-8 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm leading-6 text-blue-900">
-          Lecture seule active : le contenu complet et les actions arriveront
-          après validation de cette première synchronisation.
-        </p>
+
+        {detail.status === "loading" || detail.status === "idle" ? (
+          <div className="mt-4 space-y-3" aria-busy="true">
+            <div className="h-4 w-full animate-pulse rounded bg-[#e4e4e7] motion-reduce:animate-none" />
+            <div className="h-4 w-11/12 animate-pulse rounded bg-[#e4e4e7] motion-reduce:animate-none" />
+            <div className="h-4 w-4/5 animate-pulse rounded bg-[#e4e4e7] motion-reduce:animate-none" />
+          </div>
+        ) : null}
+
+        {detail.status === "error" ? (
+          <p className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm leading-6 text-red-900">
+            {detail.message}
+          </p>
+        ) : null}
+
+        {completeMessage ? (
+          <div className="mt-4 whitespace-pre-wrap break-words text-base leading-7 text-[#27272a]">
+            {completeMessage.bodyText}
+          </div>
+        ) : null}
+
+        {completeMessage?.attachments.length ? (
+          <section className="mt-8 border-t border-[#e4e4e7] pt-6">
+            <h3 className="text-sm font-semibold text-[#18181b]">
+              Pièces jointes ({completeMessage.attachments.length})
+            </h3>
+            <ul className="mt-3 grid gap-2 sm:grid-cols-2">
+              {completeMessage.attachments.map((attachment, index) => (
+                <li
+                  key={`${attachment.filename}-${index}`}
+                  className="rounded-xl border border-[#e4e4e7] bg-[#fafafa] px-4 py-3"
+                >
+                  <p className="truncate text-sm font-semibold text-[#27272a]">
+                    {attachment.filename}
+                  </p>
+                  <p className="mt-1 text-xs text-[#52525b]">
+                    {attachment.mimeType} · {formatFileSize(attachment.size)}
+                  </p>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-3 text-xs leading-5 text-[#52525b]">
+              Le téléchargement des pièces jointes sera ajouté dans une étape
+              séparée.
+            </p>
+          </section>
+        ) : null}
       </div>
     </article>
   );
@@ -214,59 +291,107 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(
     null,
   );
+  const [detailState, setDetailState] = useState<DetailState>({
+    status: "idle",
+  });
+  const [pageIndex, setPageIndex] = useState(0);
+  const [pageTokens, setPageTokens] = useState<Array<string | null>>([null]);
+  const detailCache = useRef(new Map<string, GmailMessageDetail>());
 
-  const loadInbox = useCallback(async (signal?: AbortSignal) => {
-    try {
-      const response = await fetch("/api/gmail/inbox", {
-        method: "GET",
-        cache: "no-store",
-        signal,
-      });
-      const payload = (await response.json()) as GmailInboxResponse;
+  const loadInbox = useCallback(
+    async (pageToken: string | null, signal?: AbortSignal) => {
+      try {
+        const query = pageToken
+          ? `?${new URLSearchParams({ pageToken }).toString()}`
+          : "";
+        const response = await fetch(`/api/gmail/inbox${query}`, {
+          method: "GET",
+          cache: "no-store",
+          signal,
+        });
+        const payload = (await response.json()) as GmailInboxResponse;
 
-      if (!response.ok || !payload.success) {
-        throw payload;
+        if (!response.ok || !payload.success) {
+          throw payload;
+        }
+
+        setState({ status: "success", data: payload.data });
+        setSelectedMessageId(payload.data.messages[0]?.id ?? null);
+      } catch (error) {
+        if (signal?.aborted) {
+          return;
+        }
+
+        const payload = error as Partial<
+          Extract<GmailInboxResponse, { success: false }>
+        >;
+        setState((current) => ({
+          status: "error",
+          message: payload.error ?? "Impossible de charger Gmail pour le moment.",
+          reconnect:
+            payload.code === "RECONNECT_REQUIRED" ||
+            payload.code === "UNAUTHENTICATED",
+          data: current.data,
+        }));
       }
-
-      setState({ status: "success", data: payload.data });
-      setSelectedMessageId((currentId) =>
-        payload.data.messages.some((message) => message.id === currentId)
-          ? currentId
-          : (payload.data.messages[0]?.id ?? null),
-      );
-    } catch (error) {
-      if (signal?.aborted) {
-        return;
-      }
-
-      const payload = error as Partial<Extract<GmailInboxResponse, { success: false }>>;
-      setState((current) => ({
-        status: "error",
-        message:
-          payload.error ?? "Impossible de charger Gmail pour le moment.",
-        reconnect:
-          payload.code === "RECONNECT_REQUIRED" ||
-          payload.code === "UNAUTHENTICATED",
-        data: current.data,
-      }));
-    }
-  }, []);
-
-  const refreshInbox = useCallback(() => {
-    setState((current) => ({
-      status: "loading",
-      data: current.data,
-    }));
-    void loadInbox();
-  }, [loadInbox]);
+    },
+    [],
+  );
 
   useEffect(() => {
     const controller = new AbortController();
-    // La réponse du système externe Gmail met ensuite à jour l'état asynchrone.
+    // La réponse de Gmail met ensuite à jour l'état asynchrone du composant.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    void loadInbox(controller.signal);
+    void loadInbox(null, controller.signal);
     return () => controller.abort();
   }, [loadInbox]);
+
+  useEffect(() => {
+    if (!selectedMessageId) {
+      return;
+    }
+
+    const cachedMessage = detailCache.current.get(selectedMessageId);
+    if (cachedMessage) {
+      setDetailState({ status: "success", data: cachedMessage });
+      return;
+    }
+
+    const controller = new AbortController();
+    setDetailState({ status: "loading" });
+
+    async function loadMessage() {
+      try {
+        const response = await fetch(
+          `/api/gmail/messages/${encodeURIComponent(selectedMessageId!)}`,
+          { cache: "no-store", signal: controller.signal },
+        );
+        const payload = (await response.json()) as GmailMessageResponse;
+
+        if (!response.ok || !payload.success) {
+          throw payload;
+        }
+
+        detailCache.current.set(payload.data.id, payload.data);
+        setDetailState({ status: "success", data: payload.data });
+      } catch (error) {
+        if (controller.signal.aborted) {
+          return;
+        }
+        const payload = error as Partial<
+          Extract<GmailMessageResponse, { success: false }>
+        >;
+        setDetailState({
+          status: "error",
+          message:
+            payload.error ?? "Le contenu complet de cet email est indisponible.",
+        });
+      }
+    }
+
+    void loadMessage();
+    return () => controller.abort();
+  }, [selectedMessageId]);
 
   const data = state.data;
   const selectedMessage = useMemo(
@@ -278,6 +403,45 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
   );
   const unreadLoaded =
     data?.messages.filter((message) => message.isUnread).length ?? 0;
+  const isLoading = state.status === "loading";
+
+  const changePage = useCallback(
+    (nextIndex: number, token: string | null) => {
+      setState((current) => ({ status: "loading", data: current.data }));
+      setPageIndex(nextIndex);
+      void loadInbox(token);
+    },
+    [loadInbox],
+  );
+
+  const showNextPage = useCallback(() => {
+    if (!data?.nextPageToken || isLoading) {
+      return;
+    }
+    const nextIndex = pageIndex + 1;
+    setPageTokens((current) => [
+      ...current.slice(0, nextIndex),
+      data.nextPageToken ?? null,
+    ]);
+    changePage(nextIndex, data.nextPageToken);
+  }, [changePage, data, isLoading, pageIndex]);
+
+  const showPreviousPage = useCallback(() => {
+    if (pageIndex === 0 || isLoading) {
+      return;
+    }
+    const previousIndex = pageIndex - 1;
+    changePage(previousIndex, pageTokens[previousIndex] ?? null);
+  }, [changePage, isLoading, pageIndex, pageTokens]);
+
+  const refreshInbox = useCallback(() => {
+    if (isLoading) {
+      return;
+    }
+    setState((current) => ({ status: "loading", data: current.data }));
+    detailCache.current.clear();
+    void loadInbox(pageTokens[pageIndex] ?? null);
+  }, [isLoading, loadInbox, pageIndex, pageTokens]);
 
   return (
     <div className="min-h-screen bg-[#f4f4f5] text-[#18181b]">
@@ -328,24 +492,24 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <p className="text-sm font-semibold text-[#2563eb]">
-              Première synchronisation réelle
+              Lecture réelle de Gmail
             </p>
             <h1 className="mt-1 text-3xl font-semibold tracking-[-0.04em] sm:text-4xl">
-              Boîte de réception Gmail
+              Boîte de réception
             </h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-[#52525b] sm:text-base">
-              Les 20 messages les plus récents sont chargés directement depuis
-              Gmail. Cette étape est strictement en lecture seule.
+              Parcourez les messages par pages et ouvrez leur contenu complet.
+              Cette étape reste en lecture seule.
             </p>
           </div>
           <button
             type="button"
             onClick={refreshInbox}
-            disabled={state.status === "loading"}
+            disabled={isLoading}
             className="inline-flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-xl bg-[#2563eb] px-5 text-sm font-semibold text-white transition-colors duration-200 hover:bg-[#1d4ed8] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#18181b] disabled:cursor-wait disabled:bg-[#93c5fd]"
           >
             <MailboxIcon name="refresh" className="size-4" />
-            {state.status === "loading" ? "Actualisation…" : "Actualiser Gmail"}
+            {isLoading ? "Actualisation…" : "Actualiser Gmail"}
           </button>
         </div>
 
@@ -400,12 +564,12 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
                 detail: "Estimation Gmail",
               },
               {
-                label: "Chargés",
-                value: data.messages.length,
-                detail: data.hasMore ? "Première page" : "Tous affichés",
+                label: "Page affichée",
+                value: pageIndex + 1,
+                detail: `${data.messages.length} messages`,
               },
               {
-                label: "Non lus chargés",
+                label: "Non lus sur la page",
                 value: unreadLoaded,
                 detail: "À consulter",
               },
@@ -430,32 +594,79 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
           aria-label="Messages Gmail"
           className="mt-6 overflow-hidden rounded-2xl border border-[#e4e4e7] bg-white"
         >
-          {state.status === "loading" && !data ? <LoadingInbox /> : null}
+          {isLoading && !data ? <LoadingInbox /> : null}
           {data && data.messages.length === 0 ? <EmptyInbox /> : null}
           {data && data.messages.length > 0 ? (
-            <div className="grid min-h-[600px] lg:grid-cols-[minmax(320px,440px)_minmax(0,1fr)]">
-              <div className="max-h-[720px] overflow-y-auto border-b border-[#e4e4e7] lg:border-b-0 lg:border-r">
-                <div className="sticky top-0 z-10 border-b border-[#e4e4e7] bg-white px-4 py-3 sm:px-5">
-                  <p className="text-sm font-semibold">
-                    {data.messages.length} messages récents
-                  </p>
-                  <p className="mt-0.5 text-xs text-[#52525b]">
-                    Actualisé à {new Date(data.syncedAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
-                  </p>
+            <>
+              <div className="grid min-h-[600px] lg:grid-cols-[minmax(320px,440px)_minmax(0,1fr)]">
+                <div className="max-h-[620px] overflow-y-auto border-b border-[#e4e4e7] lg:max-h-[780px] lg:border-b-0 lg:border-r">
+                  <div className="sticky top-0 z-10 border-b border-[#e4e4e7] bg-white px-4 py-3 sm:px-5">
+                    <p className="text-sm font-semibold">
+                      Page {pageIndex + 1} · {data.messages.length} messages
+                    </p>
+                    <p className="mt-0.5 text-xs text-[#52525b]">
+                      Actualisé à{" "}
+                      {new Date(data.syncedAt).toLocaleTimeString("fr-FR", {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </p>
+                  </div>
+                  {data.messages.map((message) => (
+                    <MessageRow
+                      key={message.id}
+                      message={message}
+                      selected={message.id === selectedMessage?.id}
+                      onSelect={() => {
+                        setDetailState({ status: "loading" });
+                        setSelectedMessageId(message.id);
+                      }}
+                    />
+                  ))}
                 </div>
-                {data.messages.map((message) => (
-                  <MessageRow
-                    key={message.id}
-                    message={message}
-                    selected={message.id === selectedMessage?.id}
-                    onSelect={() => setSelectedMessageId(message.id)}
+                <div className="min-w-0">
+                  <MessagePreview
+                    message={selectedMessage}
+                    detail={detailState}
                   />
-                ))}
+                </div>
               </div>
-              <div className="min-w-0">
-                <MessagePreview message={selectedMessage} />
-              </div>
-            </div>
+
+              <nav
+                aria-label="Pagination de la boîte de réception"
+                className="flex items-center justify-between gap-3 border-t border-[#e4e4e7] bg-[#fafafa] p-3 sm:px-5"
+              >
+                <button
+                  type="button"
+                  onClick={showPreviousPage}
+                  disabled={pageIndex === 0 || isLoading}
+                  className="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-xl border border-[#d4d4d8] bg-white px-4 text-sm font-semibold text-[#3f3f46] transition-colors duration-200 hover:bg-[#f4f4f5] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563eb] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <MailboxIcon
+                    name="chevron"
+                    className="size-4 rotate-90"
+                  />
+                  <span className="hidden sm:inline">Page précédente</span>
+                  <span className="sm:hidden">Précédente</span>
+                </button>
+                <span className="text-sm font-semibold text-[#52525b]">
+                  Page {pageIndex + 1}
+                </span>
+                <button
+                  type="button"
+                  onClick={showNextPage}
+                  disabled={!data.hasMore || isLoading}
+                  className="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-xl border border-[#d4d4d8] bg-white px-4 text-sm font-semibold text-[#3f3f46] transition-colors duration-200 hover:bg-[#f4f4f5] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563eb] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <span className="hidden sm:inline">Page suivante</span>
+                  <span className="sm:hidden">Suivante</span>
+                  <MailboxIcon
+                    name="chevron"
+                    className="size-4 -rotate-90"
+                  />
+                </button>
+              </nav>
+            </>
           ) : null}
         </section>
       </main>

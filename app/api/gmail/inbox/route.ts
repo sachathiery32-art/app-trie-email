@@ -1,10 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { GmailApiError, listFirstGmailInboxPage } from "@/lib/gmail";
-import {
-  getGoogleAccessToken,
-  GoogleSessionError,
-} from "@/lib/google-session";
+import { listGmailInboxPage } from "@/lib/gmail";
+import { gmailErrorResponse } from "@/lib/gmail-route";
+import { getGoogleAccessToken } from "@/lib/google-session";
 import type { GmailInboxResponse } from "@/types/gmail";
 
 export const dynamic = "force-dynamic";
@@ -16,48 +14,29 @@ function json(payload: GmailInboxResponse, status: number) {
   });
 }
 
-/** Retourne les 20 derniers messages Gmail sans effectuer de modification. */
+/** Retourne une page de 20 messages Gmail sans effectuer de modification. */
 export async function GET(request: NextRequest) {
   try {
-    const accessToken = await getGoogleAccessToken(request);
-    const inbox = await listFirstGmailInboxPage(accessToken);
-    return json({ success: true, data: inbox }, 200);
-  } catch (error) {
-    if (error instanceof GoogleSessionError) {
-      const messages = {
-        UNAUTHENTICATED: "Connectez-vous avec Google pour afficher Gmail.",
-        FORBIDDEN: "Ce compte Google n'est pas autorisé.",
-        RECONNECT_REQUIRED:
-          "Reconnectez Google afin d'autoriser la lecture des emails.",
-      } as const;
+    const pageToken = request.nextUrl.searchParams.get("pageToken")?.trim();
 
-      return json(
-        { success: false, code: error.code, error: messages[error.code] },
-        error.code === "UNAUTHENTICATED" ? 401 : 403,
-      );
-    }
-
-    if (error instanceof GmailApiError) {
+    if (pageToken && pageToken.length > 2048) {
       return json(
         {
           success: false,
-          code: error.status === 401 ? "RECONNECT_REQUIRED" : "GMAIL_ERROR",
-          error:
-            error.status === 401
-              ? "La connexion Google doit être renouvelée."
-              : "Gmail ne peut pas être chargé pour le moment.",
+          code: "GMAIL_ERROR",
+          error: "Le curseur de pagination Gmail est invalide.",
         },
-        error.status === 401 ? 403 : 502,
+        400,
       );
     }
 
-    return json(
-      {
-        success: false,
-        code: "GMAIL_ERROR",
-        error: "Une erreur inattendue empêche le chargement de Gmail.",
-      },
-      500,
+    const accessToken = await getGoogleAccessToken(request);
+    const inbox = await listGmailInboxPage(
+      accessToken,
+      pageToken || undefined,
     );
+    return json({ success: true, data: inbox }, 200);
+  } catch (error) {
+    return gmailErrorResponse(error);
   }
 }
