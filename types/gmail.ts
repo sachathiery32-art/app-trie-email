@@ -80,6 +80,10 @@ export type GmailInboxResponse =
   | { success: true; data: GmailInboxData }
   | GmailApiErrorResponse;
 
+export type GmailLabelCreateResponse =
+  | { success: true; data: { label: GmailLabelSummary } }
+  | GmailApiErrorResponse;
+
 export type GmailMessageResponse =
   | { success: true; data: GmailMessageDetail }
   | GmailApiErrorResponse;

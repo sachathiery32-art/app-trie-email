@@ -1,10 +1,8 @@
 import "server-only";
 
 import {
-  AI_CATEGORY_GROUPS,
+  AI_CATEGORY_LABELS,
   AI_PRIORITY_LABELS,
-  aiCategoryFolderName,
-  aiCategoryLabelName,
   type AiEmailCategory,
   type AiEmailPriority,
 } from "@/types/ai";
@@ -17,8 +15,12 @@ import {
 } from "@/lib/gmail";
 
 export const AI_LABEL_PREFIXES = [
-  ...AI_CATEGORY_GROUPS.map((group) => `AI/${group.label}`),
-  // Conservé pour retirer les anciens libellés plats lors de leur migration.
+  "AI/Activité commerciale",
+  "AI/Projets",
+  "AI/Opérations",
+  "AI/Gestion",
+  "AI/Communication",
+  "AI/Privé",
   "AI/Catégorie/",
   "AI/Priorité/",
   "AI/Action/",
@@ -29,16 +31,22 @@ export type AiLabelDecision = {
   category: AiEmailCategory;
   priority: AiEmailPriority;
   requiresReply: boolean;
+  customFolder?: string | null;
 };
 
 export function aiLabelNames(
   decision: Omit<AiLabelDecision, "messageId">,
 ) {
   return [
-    aiCategoryFolderName(decision.category),
-    aiCategoryLabelName(decision.category),
+    `AI/Catégorie/${AI_CATEGORY_LABELS[decision.category]}`,
     `AI/Priorité/${AI_PRIORITY_LABELS[decision.priority]}`,
     ...(decision.requiresReply ? ["AI/Action/Réponse requise"] : []),
+    ...(decision.customFolder
+      ? decision.customFolder
+          .split("/")
+          .slice(1)
+          .map((_, index, parts) => `Dossiers/${parts.slice(0, index + 1).join("/")}`)
+      : []),
   ];
 }
 
@@ -51,7 +59,7 @@ export async function applyAiLabels(
     accessToken,
     decision.messageId,
     names,
-    [...AI_LABEL_PREFIXES],
+    [...AI_LABEL_PREFIXES, ...(decision.customFolder ? ["Dossiers/"] : [])],
   );
 }
 
@@ -75,6 +83,11 @@ export async function applyAiLabelsBatch(
       )
       .map((label) => label.id),
   );
+  const customFolderIds = new Set(
+    labels
+      .filter((label) => label.name.startsWith("Dossiers/"))
+      .map((label) => label.id),
+  );
   const messageById = new Map(messages.map((message) => [message.id, message]));
   const appliedNames = new Map<string, string[]>();
 
@@ -92,7 +105,10 @@ export async function applyAiLabelsBatch(
         const currentIds = new Set(message.labelIds);
         const addLabelIds = [...desiredIds].filter((id) => !currentIds.has(id));
         const removeLabelIds = message.labelIds.filter(
-          (id) => managedIds.has(id) && !desiredIds.has(id),
+          (id) =>
+            (managedIds.has(id) ||
+              (Boolean(decision.customFolder) && customFolderIds.has(id))) &&
+            !desiredIds.has(id),
         );
         if (addLabelIds.length || removeLabelIds.length) {
           await setGmailMessageLabels(accessToken, decision.messageId, {

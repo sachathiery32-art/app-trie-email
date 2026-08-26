@@ -19,21 +19,15 @@ import {
   type MailboxIconName,
 } from "@/components/mailbox-icon";
 import type {
-  AiEmailCategory,
   AiUserPreferences,
   GmailAiTriageItem,
   GmailAiTriageResponse,
-} from "@/types/ai";
-import {
-  AI_CATEGORY_GROUPS,
-  AI_CATEGORY_LABELS,
-  AI_EMAIL_CATEGORIES,
-  aiCategoryLabelName,
 } from "@/types/ai";
 import type { ComposerMessage, ComposerMode, ComposerSession } from "@/types/email";
 import type {
   GmailInboxData,
   GmailInboxResponse,
+  GmailLabelCreateResponse,
   GmailLabelSummary,
   GmailMailboxView,
   GmailMessageDetail,
@@ -68,26 +62,7 @@ type DetailState =
 type Notice = { tone: "success" | "error" | "info"; message: string };
 
 const AI_PREFERENCES_KEY = "email-organizer-ai-preferences-v1";
-const AI_FOLDER_PREFIXES = AI_CATEGORY_GROUPS.map((group) => `AI/${group.label}/`);
-
-const BUSINESS_CATEGORY_ICONS: Record<AiEmailCategory, MailboxIconName> = {
-  client: "star",
-  prospect: "sparkles",
-  project: "draft",
-  team: "mail",
-  supplier: "archive",
-  calendar: "check",
-  personal: "mail",
-  finance: "attachment",
-  administration: "draft",
-  purchase: "send",
-  newsletter: "inbox",
-  promotion: "label",
-  notification: "refresh",
-  security: "check",
-  spam: "trash",
-  other: "label",
-};
+const PERSONAL_FOLDER_PREFIX = "Dossiers/";
 
 const VIEW_ITEMS: Array<{
   value: GmailMailboxView;
@@ -545,6 +520,11 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
   const [isSyncing, setIsSyncing] = useState(false);
   const [actionPending, setActionPending] = useState(false);
   const [isTriageRunning, setIsTriageRunning] = useState(false);
+  const [showFolderForm, setShowFolderForm] = useState(false);
+  const [folderName, setFolderName] = useState("");
+  const [folderParent, setFolderParent] = useState("");
+  const [folderPending, setFolderPending] = useState(false);
+  const [folderError, setFolderError] = useState<string | null>(null);
   const [preferencesHydrated, setPreferencesHydrated] = useState(false);
   const [aiPreferences, setAiPreferences] = useState<AiUserPreferences>({
     autoTriage: true,
@@ -708,6 +688,15 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
   }, [selectedMessageId]);
 
   const data = state.data;
+  const personalFolderLabels = (data?.labels ?? [])
+    .filter(
+      (label) =>
+        label.type === "user" && label.name.startsWith(PERSONAL_FOLDER_PREFIX),
+    )
+    .sort((left, right) => left.name.localeCompare(right.name, "fr"));
+  const personalRootFolders = personalFolderLabels.filter(
+    (label) => label.name.split("/").length === 2,
+  );
   const selectedMessage = useMemo(
     () => data?.messages.find((message) => message.id === selectedMessageId) ?? null,
     [data, selectedMessageId],
@@ -780,6 +769,51 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
     [loadInbox, pageIndex, pageTokens],
   );
 
+  async function createPersonalFolder(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const name = folderName.trim();
+    if (!name || folderPending) return;
+    setFolderPending(true);
+    setFolderError(null);
+    try {
+      const response = await fetch("/api/gmail/labels", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, parent: folderParent }),
+      });
+      const payload = (await response.json()) as GmailLabelCreateResponse;
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.success ? "Création incomplète." : payload.error);
+      }
+
+      setFolderName("");
+      setFolderParent("");
+      setShowFolderForm(false);
+      setNotice({ tone: "success", message: `Le dossier « ${name} » a été créé.` });
+      await loadInbox(pageTokens[pageIndex] ?? null, { silent: true });
+
+      const visibleIds = data?.messages.slice(0, 10).map((message) => message.id) ?? [];
+      visibleIds.forEach((id) => autoTriageSeen.current.delete(id));
+      if (visibleIds.length) {
+        void runAiTriage(visibleIds, { automatic: true }).catch((error) => {
+          setNotice({
+            tone: "error",
+            message:
+              error instanceof Error
+                ? `Dossier créé, mais le reclassement a échoué : ${error.message}`
+                : "Le dossier est créé, mais le reclassement a échoué.",
+          });
+        });
+      }
+    } catch (error) {
+      setFolderError(
+        error instanceof Error ? error.message : "Le dossier n’a pas pu être créé.",
+      );
+    } finally {
+      setFolderPending(false);
+    }
+  }
+
   useEffect(() => {
     if (
       !preferencesHydrated ||
@@ -793,9 +827,7 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
 
     const categoryLabelIds = new Set(
       state.data.labels
-        .filter((label) =>
-          AI_FOLDER_PREFIXES.some((prefix) => label.name.startsWith(prefix)),
-        )
+        .filter((label) => label.name.startsWith("AI/Catégorie/"))
         .map((label) => label.id),
     );
     const candidates = state.data.messages
@@ -929,12 +961,13 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
     void loadInbox(pageTokens[previousIndex] ?? null);
   }
 
-  const activeCategory = AI_EMAIL_CATEGORIES.find(
-    (category) =>
-      search === `label:"${aiCategoryLabelName(category)}"`,
+  const activePersonalFolder = data?.labels.find(
+    (label) =>
+      label.name.startsWith(PERSONAL_FOLDER_PREFIX) &&
+      search === `label:"${label.name}"`,
   );
-  const currentViewLabel = activeCategory
-    ? AI_CATEGORY_LABELS[activeCategory]
+  const currentViewLabel = activePersonalFolder
+    ? activePersonalFolder.name.split("/").at(-1) ?? "Dossier"
     : (VIEW_ITEMS.find((item) => item.value === currentView)?.label ?? "Gmail");
 
   return (
@@ -1027,54 +1060,133 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
             <div className="mt-4 border-t border-[#e4e4e7] pt-4">
               <div className="flex items-center justify-between gap-2 px-3">
                 <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[#71717a]">
-                  Classement professionnel
+                  Mes dossiers
                 </p>
-                <span className="rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-emerald-800">
-                  Auto
-                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowFolderForm((visible) => !visible);
+                    setFolderError(null);
+                  }}
+                  aria-expanded={showFolderForm}
+                  className="inline-flex min-h-11 cursor-pointer items-center gap-1 rounded-lg px-2 text-xs font-bold text-blue-700 transition-colors hover:bg-blue-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700"
+                >
+                  <MailboxIcon name={showFolderForm ? "close" : "compose"} className="size-4" />
+                  {showFolderForm ? "Fermer" : "Créer"}
+                </button>
               </div>
-              <nav aria-label="Dossiers professionnels" className="mt-2 grid gap-1 sm:grid-cols-2 lg:grid-cols-1">
-                {AI_CATEGORY_GROUPS.map((group) => (
-                  <details key={group.id} open className="group/folder rounded-xl">
-                    <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-xl px-3 text-sm font-bold text-[#3f3f46] transition-colors hover:bg-[#f4f4f5] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563eb] [&::-webkit-details-marker]:hidden">
-                      <MailboxIcon name="chevron" className="size-4 shrink-0 rotate-90 text-[#71717a] transition-transform duration-200 group-open/folder:rotate-180 motion-reduce:transition-none" />
-                      <MailboxIcon name="archive" className="size-4 shrink-0 text-blue-700" />
-                      <span className="truncate">{group.label}</span>
-                    </summary>
-                    <div className="ml-5 border-l border-[#dbeafe] pl-1">
-                      {group.categories.map((category) => {
-                        const labelName = aiCategoryLabelName(category);
-                        const gmailLabel = data?.labels.find(
-                          (label) => label.name === labelName,
-                        );
-                        const query = `label:"${labelName}"`;
-                        const selected = currentView === "all" && search === query;
-                        return (
-                          <button
-                            key={category}
-                            type="button"
-                            onClick={() => applyGmailQuery(query)}
-                            aria-current={selected ? "page" : undefined}
-                            className={`flex min-h-11 w-full cursor-pointer items-center gap-2 rounded-xl px-3 text-left text-sm font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563eb] ${
-                              selected
-                                ? "bg-[#eff6ff] text-[#1d4ed8]"
-                                : "text-[#52525b] hover:bg-[#f4f4f5] hover:text-[#18181b]"
-                            }`}
-                          >
-                            <MailboxIcon name={BUSINESS_CATEGORY_ICONS[category]} className="size-4 shrink-0 text-blue-700" />
-                            <span className="truncate">{AI_CATEGORY_LABELS[category]}</span>
-                            {typeof gmailLabel?.messagesTotal === "number" ? (
-                              <span className="ml-auto text-xs tabular-nums">
-                                {gmailLabel.messagesTotal}
-                              </span>
-                            ) : null}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </details>
-                ))}
-              </nav>
+              {showFolderForm ? (
+                <form onSubmit={createPersonalFolder} className="mt-2 rounded-xl border border-blue-200 bg-blue-50 p-3">
+                  <label htmlFor="folder-parent" className="text-xs font-semibold text-blue-950">
+                    Emplacement
+                  </label>
+                  <select
+                    id="folder-parent"
+                    value={folderParent}
+                    onChange={(event) => setFolderParent(event.target.value)}
+                    className="mt-1 min-h-11 w-full rounded-lg border border-blue-200 bg-white px-2 text-base text-blue-950 outline-none focus:border-blue-700 focus:ring-1 focus:ring-blue-700 sm:text-sm"
+                  >
+                    <option value="">Dossier principal</option>
+                    {personalRootFolders.map((folder) => (
+                      <option key={folder.id} value={folder.name}>
+                        Sous-dossier de {folder.name.replace(PERSONAL_FOLDER_PREFIX, "")}
+                      </option>
+                    ))}
+                  </select>
+                  <label htmlFor="folder-name" className="mt-3 block text-xs font-semibold text-blue-950">
+                    Nom choisi par le client
+                  </label>
+                  <input
+                    id="folder-name"
+                    value={folderName}
+                    onChange={(event) => setFolderName(event.target.value)}
+                    maxLength={50}
+                    required
+                    placeholder="Ex. Client Dupont"
+                    className="mt-1 min-h-11 w-full rounded-lg border border-blue-200 bg-white px-3 text-base text-blue-950 outline-none focus:border-blue-700 focus:ring-1 focus:ring-blue-700 sm:text-sm"
+                  />
+                  {folderError ? (
+                    <p role="alert" className="mt-2 text-xs leading-5 text-red-800">
+                      {folderError}
+                    </p>
+                  ) : null}
+                  <button
+                    type="submit"
+                    disabled={!folderName.trim() || folderPending}
+                    className="mt-3 inline-flex min-h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-lg bg-blue-700 px-3 text-sm font-semibold text-white transition-colors hover:bg-blue-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-900 disabled:cursor-wait disabled:opacity-60"
+                  >
+                    <MailboxIcon name="check" className="size-4" />
+                    {folderPending ? "Création…" : "Créer ce dossier"}
+                  </button>
+                </form>
+              ) : null}
+
+              {personalRootFolders.length ? (
+                <nav aria-label="Dossiers personnalisés" className="mt-2 grid gap-1 sm:grid-cols-2 lg:grid-cols-1">
+                  {personalRootFolders.map((folder) => {
+                    const query = `label:"${folder.name}"`;
+                    const selected = currentView === "all" && search === query;
+                    const children = personalFolderLabels.filter(
+                      (label) =>
+                        label.name.startsWith(`${folder.name}/`) &&
+                        label.name.split("/").length === 3,
+                    );
+                    return (
+                      <div key={folder.id} className="rounded-xl">
+                        <button
+                          type="button"
+                          onClick={() => applyGmailQuery(query)}
+                          aria-current={selected ? "page" : undefined}
+                          className={`flex min-h-11 w-full cursor-pointer items-center gap-2 rounded-xl px-3 text-left text-sm font-bold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 ${
+                            selected
+                              ? "bg-blue-50 text-blue-800"
+                              : "text-[#3f3f46] hover:bg-[#f4f4f5]"
+                          }`}
+                        >
+                          <MailboxIcon name="archive" className="size-4 shrink-0 text-blue-700" />
+                          <span className="truncate">
+                            {folder.name.replace(PERSONAL_FOLDER_PREFIX, "")}
+                          </span>
+                          {typeof folder.messagesTotal === "number" ? (
+                            <span className="ml-auto text-xs tabular-nums">{folder.messagesTotal}</span>
+                          ) : null}
+                        </button>
+                        {children.length ? (
+                          <div className="ml-5 border-l border-blue-100 pl-1">
+                            {children.map((child) => {
+                              const childQuery = `label:"${child.name}"`;
+                              const childSelected = currentView === "all" && search === childQuery;
+                              return (
+                                <button
+                                  key={child.id}
+                                  type="button"
+                                  onClick={() => applyGmailQuery(childQuery)}
+                                  aria-current={childSelected ? "page" : undefined}
+                                  className={`flex min-h-11 w-full cursor-pointer items-center gap-2 rounded-xl px-3 text-left text-sm font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 ${
+                                    childSelected
+                                      ? "bg-blue-50 text-blue-800"
+                                      : "text-[#52525b] hover:bg-[#f4f4f5]"
+                                  }`}
+                                >
+                                  <MailboxIcon name="label" className="size-4 shrink-0 text-blue-600" />
+                                  <span className="truncate">{child.name.split("/").at(-1)}</span>
+                                  {typeof child.messagesTotal === "number" ? (
+                                    <span className="ml-auto text-xs tabular-nums">{child.messagesTotal}</span>
+                                  ) : null}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </nav>
+              ) : (
+                <p className="mx-3 mt-2 rounded-xl bg-[#f4f4f5] p-3 text-xs leading-5 text-[#52525b]">
+                  Créez vos propres dossiers. Groq utilisera leurs noms pour classer les nouveaux emails.
+                </p>
+              )}
             </div>
 
             <div className="mt-4 hidden border-t border-[#e4e4e7] pt-4 text-xs leading-5 text-[#71717a] lg:block">

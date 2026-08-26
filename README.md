@@ -22,6 +22,9 @@ la boîte Gmail depuis une interface secondaire.
   actions, échéances, risques et propositions de réponse ;
 - classement manuel ou automatique par libellés Gmail `AI/Catégorie`,
   `AI/Priorité` et `AI/Action` ;
+- création libre de dossiers et sous-dossiers Gmail depuis la barre latérale ;
+- classement automatique des nouveaux messages dans les dossiers personnalisés
+  dont les noms sont choisis par l'utilisateur ;
 - recherche en langage naturel avec réponse synthétique, sources visibles et
   traduction automatique en requête Gmail ;
 - analyse des PDF contenant du texte et des fichiers TXT, CSV, JSON, XML, RTF,

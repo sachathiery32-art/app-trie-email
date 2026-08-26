@@ -238,7 +238,7 @@ export async function listGmailLabels(accessToken: string) {
     .filter((label): label is GmailLabelSummary => Boolean(label));
 }
 
-async function createGmailLabel(accessToken: string, name: string) {
+export async function createGmailLabel(accessToken: string, name: string) {
   const url = new URL(`${GMAIL_API_BASE}/users/me/labels`);
   const label = await gmailRequest<GmailLabelResponse>(url, accessToken, {
     method: "POST",
