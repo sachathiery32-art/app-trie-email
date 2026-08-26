@@ -19,10 +19,12 @@ import {
   type MailboxIconName,
 } from "@/components/mailbox-icon";
 import type {
+  AiEmailCategory,
   AiUserPreferences,
   GmailAiTriageItem,
   GmailAiTriageResponse,
 } from "@/types/ai";
+import { AI_CATEGORY_LABELS, AI_EMAIL_CATEGORIES } from "@/types/ai";
 import type { ComposerMessage, ComposerMode, ComposerSession } from "@/types/email";
 import type {
   GmailInboxData,
@@ -61,6 +63,26 @@ type DetailState =
 type Notice = { tone: "success" | "error" | "info"; message: string };
 
 const AI_PREFERENCES_KEY = "email-organizer-ai-preferences-v1";
+const AI_CATEGORY_PREFIX = "AI/Catégorie/";
+
+const BUSINESS_CATEGORY_ICONS: Record<AiEmailCategory, MailboxIconName> = {
+  client: "star",
+  prospect: "sparkles",
+  project: "draft",
+  team: "mail",
+  supplier: "archive",
+  calendar: "check",
+  personal: "mail",
+  finance: "attachment",
+  administration: "draft",
+  purchase: "send",
+  newsletter: "inbox",
+  promotion: "label",
+  notification: "refresh",
+  security: "check",
+  spam: "trash",
+  other: "label",
+};
 
 const VIEW_ITEMS: Array<{
   value: GmailMailboxView;
@@ -520,7 +542,7 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
   const [isTriageRunning, setIsTriageRunning] = useState(false);
   const [preferencesHydrated, setPreferencesHydrated] = useState(false);
   const [aiPreferences, setAiPreferences] = useState<AiUserPreferences>({
-    autoTriage: false,
+    autoTriage: true,
     writingStyle: "",
   });
   const detailCache = useRef(new Map<string, GmailMessageDetail>());
@@ -615,7 +637,7 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
         if (stored) {
           const value = JSON.parse(stored) as Partial<AiUserPreferences>;
           setAiPreferences({
-            autoTriage: value.autoTriage === true,
+            autoTriage: true,
             writingStyle:
               typeof value.writingStyle === "string"
                 ? value.writingStyle.slice(0, 500)
@@ -766,7 +788,7 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
 
     const categoryLabelIds = new Set(
       state.data.labels
-        .filter((label) => label.name.startsWith("AI/Catégorie/"))
+        .filter((label) => label.name.startsWith(AI_CATEGORY_PREFIX))
         .map((label) => label.id),
     );
     const candidates = state.data.messages
@@ -900,8 +922,13 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
     void loadInbox(pageTokens[previousIndex] ?? null);
   }
 
-  const currentViewLabel =
-    VIEW_ITEMS.find((item) => item.value === currentView)?.label ?? "Gmail";
+  const activeCategory = AI_EMAIL_CATEGORIES.find(
+    (category) =>
+      search === `label:"${AI_CATEGORY_PREFIX}${AI_CATEGORY_LABELS[category]}"`,
+  );
+  const currentViewLabel = activeCategory
+    ? AI_CATEGORY_LABELS[activeCategory]
+    : (VIEW_ITEMS.find((item) => item.value === currentView)?.label ?? "Gmail");
 
   return (
     <div className="min-h-screen bg-[#f4f4f5] text-[#18181b]">
@@ -990,31 +1017,43 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
               })}
             </nav>
 
-            {data?.labels.some((label) => label.name.startsWith("AI/Catégorie/")) ? (
-              <div className="mt-4 border-t border-[#e4e4e7] pt-4">
-                <p className="px-3 text-xs font-semibold uppercase tracking-[0.08em] text-[#71717a]">
-                  Catégories IA
+            <div className="mt-4 border-t border-[#e4e4e7] pt-4">
+              <div className="flex items-center justify-between gap-2 px-3">
+                <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[#71717a]">
+                  Classement professionnel
                 </p>
-                <div className="mt-2 grid gap-1">
-                  {data.labels
-                    .filter((label) => label.name.startsWith("AI/Catégorie/"))
-                    .slice(0, 8)
-                    .map((label) => (
-                      <button
-                        key={label.id}
-                        type="button"
-                        onClick={() => applyGmailQuery(`label:"${label.name}"`)}
-                        className="flex min-h-11 cursor-pointer items-center gap-2 rounded-xl px-3 text-left text-sm font-semibold text-[#52525b] transition-colors hover:bg-[#f4f4f5] hover:text-[#18181b] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563eb]"
-                      >
-                        <MailboxIcon name="label" className="size-4 shrink-0 text-blue-700" />
-                        <span className="truncate">
-                          {label.name.replace("AI/Catégorie/", "")}
-                        </span>
-                      </button>
-                    ))}
-                </div>
+                <span className="rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-emerald-800">
+                  Auto
+                </span>
               </div>
-            ) : null}
+              <nav aria-label="Catégories professionnelles" className="mt-2 grid grid-cols-2 gap-1 sm:grid-cols-4 lg:grid-cols-1">
+                {AI_EMAIL_CATEGORIES.map((category) => {
+                  const labelName = `${AI_CATEGORY_PREFIX}${AI_CATEGORY_LABELS[category]}`;
+                  const gmailLabel = data?.labels.find((label) => label.name === labelName);
+                  const query = `label:"${labelName}"`;
+                  const selected = currentView === "all" && search === query;
+                  return (
+                    <button
+                      key={category}
+                      type="button"
+                      onClick={() => applyGmailQuery(query)}
+                      aria-current={selected ? "page" : undefined}
+                      className={`flex min-h-11 cursor-pointer items-center gap-2 rounded-xl px-3 text-left text-sm font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563eb] ${
+                        selected
+                          ? "bg-[#eff6ff] text-[#1d4ed8]"
+                          : "text-[#52525b] hover:bg-[#f4f4f5] hover:text-[#18181b]"
+                      }`}
+                    >
+                      <MailboxIcon name={BUSINESS_CATEGORY_ICONS[category]} className="size-4 shrink-0 text-blue-700" />
+                      <span className="truncate">{AI_CATEGORY_LABELS[category]}</span>
+                      {typeof gmailLabel?.messagesTotal === "number" ? (
+                        <span className="ml-auto text-xs tabular-nums">{gmailLabel.messagesTotal}</span>
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </nav>
+            </div>
 
             <div className="mt-4 hidden border-t border-[#e4e4e7] pt-4 text-xs leading-5 text-[#71717a] lg:block">
               <p className="font-semibold text-[#52525b]">Synchronisation automatique</p>

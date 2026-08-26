@@ -88,7 +88,8 @@ export async function POST(request: NextRequest) {
         {
           role: "system",
           content: [
-            "Tu tries une liste d'emails Gmail personnels en français.",
+            "Tu tries la boîte Gmail d'un entrepreneur en français.",
+            "Distingue précisément clients actifs, prospects commerciaux, projets, équipe ou partenaires, fournisseurs, rendez-vous, finances, administration, achats et messages personnels.",
             "Retourne exactement un résultat par messageId fourni.",
             "N'invente pas d'information et réserve urgent aux risques ou échéances réellement proches.",
             UNTRUSTED_EMAIL_RULE,

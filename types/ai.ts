@@ -1,7 +1,12 @@
 import type { ApiErrorResponse } from "@/types/api";
 
 export const AI_EMAIL_CATEGORIES = [
-  "work",
+  "client",
+  "prospect",
+  "project",
+  "team",
+  "supplier",
+  "calendar",
   "personal",
   "finance",
   "administration",
@@ -29,7 +34,12 @@ export type AiEmailPriority = (typeof AI_EMAIL_PRIORITIES)[number];
 export type AiRewriteAction = (typeof AI_REWRITE_ACTIONS)[number];
 
 export const AI_CATEGORY_LABELS: Record<AiEmailCategory, string> = {
-  work: "Travail",
+  client: "Clients",
+  prospect: "Prospects et ventes",
+  project: "Projets",
+  team: "Équipe et partenaires",
+  supplier: "Fournisseurs",
+  calendar: "Rendez-vous",
   personal: "Personnel",
   finance: "Factures et finances",
   administration: "Administration",

@@ -245,24 +245,14 @@ export function GmailAiCommandCenter({
             Préférences de l’assistant
           </summary>
           <div className="mt-2 grid gap-3">
-            <label className="flex min-h-11 cursor-pointer items-start gap-3 rounded-xl bg-blue-50 p-3 text-sm leading-6 text-blue-950">
-              <input
-                type="checkbox"
-                checked={preferences.autoTriage}
-                onChange={(event) =>
-                  onPreferencesChange({
-                    ...preferences,
-                    autoTriage: event.target.checked,
-                  })
-                }
-                className="mt-1 size-4"
-              />
+            <div className="flex min-h-11 items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm leading-6 text-emerald-950">
+              <MailboxIcon name="check" className="mt-1 size-4 shrink-0" />
               <span>
-                <strong>Tri automatique quand le site est ouvert</strong><br />
-                Classe par lots les nouveaux messages visibles qui n’ont pas encore de
-                catégorie IA.
+                <strong>Tri automatique toujours actif</strong><br />
+                Les nouveaux messages sont classés par lots dès leur synchronisation,
+                sans action manuelle.
               </span>
-            </label>
+            </div>
             <div>
               <label htmlFor="ai-writing-style" className="text-sm font-semibold text-blue-950">
                 Mon style de rédaction
