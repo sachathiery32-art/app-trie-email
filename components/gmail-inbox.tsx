@@ -195,15 +195,15 @@ function ActionButton({
 
 function LoadingInbox() {
   return (
-    <div aria-live="polite" aria-busy="true" className="p-4 sm:p-6">
+    <div aria-live="polite" aria-busy="true" className="p-3">
       <p className="text-sm font-semibold text-[#52525b]">
         Chargement sécurisé de Gmail…
       </p>
-      <div className="mt-5 space-y-3">
-        {[1, 2, 3, 4, 5].map((item) => (
+      <div className="mt-3 divide-y divide-[#e4e4e7]">
+        {Array.from({ length: 10 }, (_, index) => index).map((item) => (
           <div
             key={item}
-            className="h-24 animate-pulse rounded-2xl bg-[#f1f1f3] motion-reduce:animate-none"
+            className="h-12 animate-pulse bg-[#f1f1f3] motion-reduce:animate-none"
           />
         ))}
       </div>
@@ -225,40 +225,58 @@ function MessageRow({
       type="button"
       onClick={onSelect}
       aria-pressed={selected}
-      className={`w-full cursor-pointer border-b border-[#e4e4e7] p-4 text-left transition-colors duration-200 focus-visible:relative focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#2563eb] sm:p-5 ${
-        selected ? "bg-[#eff6ff]" : "bg-white hover:bg-[#fafafa]"
+      className={`min-h-14 w-full cursor-pointer border-b border-[#e4e4e7] px-3 py-2 text-left transition-colors duration-200 focus-visible:relative focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#2563eb] md:min-h-12 md:py-0 ${
+        selected
+          ? "bg-[#dbeafe] shadow-[inset_3px_0_0_#2563eb]"
+          : message.isUnread
+            ? "bg-white hover:bg-[#f5f8fc]"
+            : "bg-[#f8fafd] hover:bg-[#eef3f8]"
       }`}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-2">
-          {message.isUnread ? (
-            <span className="size-2.5 shrink-0 rounded-full bg-[#2563eb]">
+      <div className="md:hidden">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-2">
+            {message.isUnread ? (
+              <span className="size-2 shrink-0 rounded-full bg-[#2563eb]">
+                <span className="sr-only">Message non lu</span>
+              </span>
+            ) : null}
+            <p className={`truncate text-sm text-[#18181b] ${message.isUnread ? "font-bold" : "font-medium"}`}>
+              {message.senderName}
+            </p>
+          </div>
+          <time className="shrink-0 text-xs font-medium text-[#52525b]">
+            {formatMessageDate(message.receivedAt)}
+          </time>
+        </div>
+        <p className={`mt-1 truncate text-sm ${message.isUnread ? "font-semibold text-[#18181b]" : "text-[#3f3f46]"}`}>
+          {message.subject} <span className="font-normal text-[#71717a]">— {message.snippet}</span>
+        </p>
+      </div>
+
+      <div className="hidden h-12 grid-cols-[22px_minmax(110px,155px)_minmax(180px,1fr)_72px] items-center gap-2 md:grid">
+        <span className="flex items-center justify-center">
+          {message.isStarred ? (
+            <MailboxIcon name="star" className="size-4 text-amber-600" />
+          ) : message.isUnread ? (
+            <span className="size-2 rounded-full bg-[#2563eb]">
               <span className="sr-only">Message non lu</span>
             </span>
-          ) : null}
-          <p
-            className={`truncate text-sm text-[#18181b] ${
-              message.isUnread ? "font-bold" : "font-semibold"
-            }`}
-          >
-            {message.senderName}
-          </p>
-        </div>
-        <time className="shrink-0 text-xs font-medium text-[#52525b]">
+          ) : (
+            <span className="size-2 rounded-full bg-[#d4d4d8]" aria-hidden="true" />
+          )}
+        </span>
+        <p className={`truncate text-sm text-[#18181b] ${message.isUnread ? "font-bold" : "font-medium"}`}>
+          {message.senderName}
+        </p>
+        <p className={`truncate text-sm ${message.isUnread ? "font-semibold text-[#18181b]" : "text-[#3f3f46]"}`}>
+          {message.subject}
+          <span className="font-normal text-[#71717a]"> — {message.snippet}</span>
+        </p>
+        <time className={`text-right text-xs ${message.isUnread ? "font-bold text-[#18181b]" : "font-medium text-[#52525b]"}`}>
           {formatMessageDate(message.receivedAt)}
         </time>
       </div>
-      <div className="mt-2 flex items-center gap-2">
-        {message.isStarred ? (
-          <MailboxIcon name="star" className="size-4 shrink-0 text-amber-600" />
-        ) : null}
-        <p className="truncate text-sm font-semibold text-[#27272a]">
-          {message.subject}
-        </p>
-      </div>
-      <p className="mt-1 line-clamp-2 text-sm leading-5 text-[#71717a]">
-        {message.snippet}
-      </p>
     </button>
   );
 }
@@ -1196,12 +1214,16 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
           </aside>
 
           <div className="min-w-0">
-            <section className="rounded-2xl border border-[#e4e4e7] bg-white p-4 sm:p-5">
-              <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+            <section className="rounded-2xl border border-[#e4e4e7] bg-white p-3 sm:p-4">
+              <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
                 <div>
-                  <p className="text-sm font-semibold text-[#2563eb]">Boîte Gmail réelle</p>
-                  <h1 className="mt-1 text-3xl font-semibold tracking-[-0.04em]">{currentViewLabel}</h1>
-                  <p className="mt-2 text-sm text-[#52525b]">
+                  <div className="flex items-center gap-2">
+                    <h1 className="text-2xl font-semibold tracking-[-0.03em]">{currentViewLabel}</h1>
+                    <span className="rounded-full bg-blue-50 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-blue-800">
+                      Tri auto
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs text-[#52525b]">
                     {data
                       ? `${data.viewEstimate.toLocaleString("fr-FR")} message(s) estimé(s) dans cette vue.`
                       : "Chargement de la boîte…"}
@@ -1218,10 +1240,10 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
                         onChange={(event) => setSearchInput(event.target.value)}
                         maxLength={500}
                         placeholder="Rechercher dans Gmail"
-                        className="min-h-12 w-full rounded-xl border border-[#d4d4d8] bg-white pl-10 pr-3 text-base outline-none focus:border-[#2563eb] focus:ring-1 focus:ring-[#2563eb] sm:text-sm"
+                        className="min-h-11 w-full rounded-xl border border-[#d4d4d8] bg-[#f1f5f9] pl-10 pr-3 text-base outline-none transition-colors focus:border-[#2563eb] focus:bg-white focus:ring-1 focus:ring-[#2563eb] sm:text-sm"
                       />
                     </div>
-                    <button type="submit" className="min-h-12 cursor-pointer rounded-xl bg-[#18181b] px-4 text-sm font-semibold text-white hover:bg-[#3f3f46] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#18181b]">
+                    <button type="submit" className="min-h-11 cursor-pointer rounded-xl bg-[#18181b] px-4 text-sm font-semibold text-white hover:bg-[#3f3f46] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#18181b]">
                       Chercher
                     </button>
                   </form>
@@ -1229,7 +1251,7 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
                     type="button"
                     onClick={refreshInbox}
                     disabled={isLoading || isSyncing}
-                    className="inline-flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-xl border border-[#d4d4d8] bg-white px-4 text-sm font-semibold text-[#3f3f46] transition-colors hover:bg-[#f4f4f5] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563eb] disabled:cursor-wait disabled:opacity-50"
+                    className="inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-xl border border-[#d4d4d8] bg-white px-4 text-sm font-semibold text-[#3f3f46] transition-colors hover:bg-[#f4f4f5] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563eb] disabled:cursor-wait disabled:opacity-50"
                   >
                     <MailboxIcon name="refresh" className="size-4" />
                     Actualiser
@@ -1255,14 +1277,27 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
               ) : null}
             </section>
 
-            <GmailAiCommandCenter
-              messages={data?.messages ?? []}
-              isTriageRunning={isTriageRunning}
-              onTriage={runAiTriage}
-              onApplyGmailQuery={applyGmailQuery}
-              preferences={aiPreferences}
-              onPreferencesChange={setAiPreferences}
-            />
+            <details className="group/assistant mt-3 rounded-2xl border border-blue-200 bg-white">
+              <summary className="flex min-h-12 cursor-pointer list-none items-center gap-3 rounded-2xl px-4 text-sm font-semibold text-blue-950 transition-colors hover:bg-blue-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 [&::-webkit-details-marker]:hidden">
+                <span className="flex size-8 items-center justify-center rounded-lg bg-blue-100 text-blue-800">
+                  <MailboxIcon name="sparkles" className="size-4" />
+                </span>
+                <span>Assistant IA et recherche intelligente</span>
+                <span className="ml-auto text-xs font-medium text-blue-700 group-open/assistant:hidden">Ouvrir</span>
+                <span className="ml-auto hidden text-xs font-medium text-blue-700 group-open/assistant:inline">Réduire</span>
+                <MailboxIcon name="chevron" className="size-4 rotate-90 transition-transform duration-200 group-open/assistant:rotate-180 motion-reduce:transition-none" />
+              </summary>
+              <div className="border-t border-blue-100 p-3 pt-0">
+                <GmailAiCommandCenter
+                  messages={data?.messages ?? []}
+                  isTriageRunning={isTriageRunning}
+                  onTriage={runAiTriage}
+                  onApplyGmailQuery={applyGmailQuery}
+                  preferences={aiPreferences}
+                  onPreferencesChange={setAiPreferences}
+                />
+              </div>
+            </details>
 
             {notice ? (
               <div
@@ -1299,7 +1334,49 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
               </section>
             ) : null}
 
-            <section aria-label="Messages Gmail" className="mt-4 overflow-hidden rounded-2xl border border-[#e4e4e7] bg-white">
+            <section aria-label="Messages Gmail" className="mt-3 overflow-hidden rounded-2xl border border-[#e4e4e7] bg-white shadow-sm">
+              {data ? (
+                <nav aria-label="Catégories de messages" className="flex min-h-16 items-stretch overflow-x-auto border-b border-[#e4e4e7] bg-white px-1">
+                  <button
+                    type="button"
+                    onClick={() => selectView("inbox")}
+                    aria-current={currentView === "inbox" && !search ? "page" : undefined}
+                    className={`relative flex min-w-36 cursor-pointer items-center gap-2 px-4 text-sm font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-blue-700 ${
+                      currentView === "inbox" && !search
+                        ? "bg-blue-50 text-blue-800 after:absolute after:inset-x-3 after:bottom-0 after:h-1 after:rounded-t-full after:bg-blue-700"
+                        : "text-[#52525b] hover:bg-[#f4f4f5] hover:text-[#18181b]"
+                    }`}
+                  >
+                    <MailboxIcon name="inbox" className="size-5 shrink-0" />
+                    Principale
+                  </button>
+                  {personalRootFolders.map((folder) => {
+                    const query = `label:"${folder.name}"`;
+                    const selected = currentView === "all" && search === query;
+                    return (
+                      <button
+                        key={folder.id}
+                        type="button"
+                        onClick={() => applyGmailQuery(query)}
+                        aria-current={selected ? "page" : undefined}
+                        className={`relative flex min-w-36 cursor-pointer items-center gap-2 px-4 text-sm font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-blue-700 ${
+                          selected
+                            ? "bg-blue-50 text-blue-800 after:absolute after:inset-x-3 after:bottom-0 after:h-1 after:rounded-t-full after:bg-blue-700"
+                            : "text-[#52525b] hover:bg-[#f4f4f5] hover:text-[#18181b]"
+                        }`}
+                      >
+                        <MailboxIcon name="archive" className="size-5 shrink-0" />
+                        <span className="truncate">{folder.name.replace(PERSONAL_FOLDER_PREFIX, "")}</span>
+                        {typeof folder.messagesTotal === "number" ? (
+                          <span className="ml-auto rounded-full bg-[#e4e4e7] px-1.5 py-0.5 text-[10px] tabular-nums text-[#3f3f46]">
+                            {folder.messagesTotal}
+                          </span>
+                        ) : null}
+                      </button>
+                    );
+                  })}
+                </nav>
+              ) : null}
               {isLoading && !data ? <LoadingInbox /> : null}
               {data && data.messages.length === 0 ? (
                 <div className="flex min-h-80 flex-col items-center justify-center p-8 text-center">
@@ -1310,12 +1387,14 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
               ) : null}
               {data && data.messages.length > 0 ? (
                 <>
-                  <div className="grid min-h-[620px] xl:grid-cols-[minmax(300px,410px)_minmax(0,1fr)]">
-                    <div className="max-h-[620px] overflow-y-auto border-b border-[#e4e4e7] xl:max-h-[820px] xl:border-b-0 xl:border-r">
-                      <div className="sticky top-0 z-10 border-b border-[#e4e4e7] bg-white px-4 py-3">
-                        <p className="text-sm font-semibold">Page {pageIndex + 1} · {data.messages.length} messages</p>
-                        <p className="mt-0.5 text-xs text-[#52525b]">
-                          Mis à jour à {new Date(data.syncedAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
+                  <div className="grid min-h-[660px] xl:grid-cols-[minmax(440px,560px)_minmax(0,1fr)]">
+                    <div className="max-h-[660px] overflow-y-auto border-b border-[#e4e4e7] xl:max-h-[820px] xl:border-b-0 xl:border-r">
+                      <div className="sticky top-0 z-10 flex min-h-11 items-center justify-between gap-3 border-b border-[#e4e4e7] bg-white/95 px-3 backdrop-blur-sm">
+                        <p className="text-xs font-semibold text-[#3f3f46]">
+                          {data.messages.length} messages · page {pageIndex + 1}
+                        </p>
+                        <p className="text-xs text-[#71717a]">
+                          {new Date(data.syncedAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
                         </p>
                       </div>
                       {data.messages.map((message) => (
