@@ -24,7 +24,12 @@ import type {
   GmailAiTriageItem,
   GmailAiTriageResponse,
 } from "@/types/ai";
-import { AI_CATEGORY_LABELS, AI_EMAIL_CATEGORIES } from "@/types/ai";
+import {
+  AI_CATEGORY_GROUPS,
+  AI_CATEGORY_LABELS,
+  AI_EMAIL_CATEGORIES,
+  aiCategoryLabelName,
+} from "@/types/ai";
 import type { ComposerMessage, ComposerMode, ComposerSession } from "@/types/email";
 import type {
   GmailInboxData,
@@ -63,7 +68,7 @@ type DetailState =
 type Notice = { tone: "success" | "error" | "info"; message: string };
 
 const AI_PREFERENCES_KEY = "email-organizer-ai-preferences-v1";
-const AI_CATEGORY_PREFIX = "AI/Catégorie/";
+const AI_FOLDER_PREFIXES = AI_CATEGORY_GROUPS.map((group) => `AI/${group.label}/`);
 
 const BUSINESS_CATEGORY_ICONS: Record<AiEmailCategory, MailboxIconName> = {
   client: "star",
@@ -788,7 +793,9 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
 
     const categoryLabelIds = new Set(
       state.data.labels
-        .filter((label) => label.name.startsWith(AI_CATEGORY_PREFIX))
+        .filter((label) =>
+          AI_FOLDER_PREFIXES.some((prefix) => label.name.startsWith(prefix)),
+        )
         .map((label) => label.id),
     );
     const candidates = state.data.messages
@@ -924,7 +931,7 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
 
   const activeCategory = AI_EMAIL_CATEGORIES.find(
     (category) =>
-      search === `label:"${AI_CATEGORY_PREFIX}${AI_CATEGORY_LABELS[category]}"`,
+      search === `label:"${aiCategoryLabelName(category)}"`,
   );
   const currentViewLabel = activeCategory
     ? AI_CATEGORY_LABELS[activeCategory]
@@ -1026,32 +1033,47 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
                   Auto
                 </span>
               </div>
-              <nav aria-label="Catégories professionnelles" className="mt-2 grid grid-cols-2 gap-1 sm:grid-cols-4 lg:grid-cols-1">
-                {AI_EMAIL_CATEGORIES.map((category) => {
-                  const labelName = `${AI_CATEGORY_PREFIX}${AI_CATEGORY_LABELS[category]}`;
-                  const gmailLabel = data?.labels.find((label) => label.name === labelName);
-                  const query = `label:"${labelName}"`;
-                  const selected = currentView === "all" && search === query;
-                  return (
-                    <button
-                      key={category}
-                      type="button"
-                      onClick={() => applyGmailQuery(query)}
-                      aria-current={selected ? "page" : undefined}
-                      className={`flex min-h-11 cursor-pointer items-center gap-2 rounded-xl px-3 text-left text-sm font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563eb] ${
-                        selected
-                          ? "bg-[#eff6ff] text-[#1d4ed8]"
-                          : "text-[#52525b] hover:bg-[#f4f4f5] hover:text-[#18181b]"
-                      }`}
-                    >
-                      <MailboxIcon name={BUSINESS_CATEGORY_ICONS[category]} className="size-4 shrink-0 text-blue-700" />
-                      <span className="truncate">{AI_CATEGORY_LABELS[category]}</span>
-                      {typeof gmailLabel?.messagesTotal === "number" ? (
-                        <span className="ml-auto text-xs tabular-nums">{gmailLabel.messagesTotal}</span>
-                      ) : null}
-                    </button>
-                  );
-                })}
+              <nav aria-label="Dossiers professionnels" className="mt-2 grid gap-1 sm:grid-cols-2 lg:grid-cols-1">
+                {AI_CATEGORY_GROUPS.map((group) => (
+                  <details key={group.id} open className="group/folder rounded-xl">
+                    <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-xl px-3 text-sm font-bold text-[#3f3f46] transition-colors hover:bg-[#f4f4f5] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563eb] [&::-webkit-details-marker]:hidden">
+                      <MailboxIcon name="chevron" className="size-4 shrink-0 rotate-90 text-[#71717a] transition-transform duration-200 group-open/folder:rotate-180 motion-reduce:transition-none" />
+                      <MailboxIcon name="archive" className="size-4 shrink-0 text-blue-700" />
+                      <span className="truncate">{group.label}</span>
+                    </summary>
+                    <div className="ml-5 border-l border-[#dbeafe] pl-1">
+                      {group.categories.map((category) => {
+                        const labelName = aiCategoryLabelName(category);
+                        const gmailLabel = data?.labels.find(
+                          (label) => label.name === labelName,
+                        );
+                        const query = `label:"${labelName}"`;
+                        const selected = currentView === "all" && search === query;
+                        return (
+                          <button
+                            key={category}
+                            type="button"
+                            onClick={() => applyGmailQuery(query)}
+                            aria-current={selected ? "page" : undefined}
+                            className={`flex min-h-11 w-full cursor-pointer items-center gap-2 rounded-xl px-3 text-left text-sm font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563eb] ${
+                              selected
+                                ? "bg-[#eff6ff] text-[#1d4ed8]"
+                                : "text-[#52525b] hover:bg-[#f4f4f5] hover:text-[#18181b]"
+                            }`}
+                          >
+                            <MailboxIcon name={BUSINESS_CATEGORY_ICONS[category]} className="size-4 shrink-0 text-blue-700" />
+                            <span className="truncate">{AI_CATEGORY_LABELS[category]}</span>
+                            {typeof gmailLabel?.messagesTotal === "number" ? (
+                              <span className="ml-auto text-xs tabular-nums">
+                                {gmailLabel.messagesTotal}
+                              </span>
+                            ) : null}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </details>
+                ))}
               </nav>
             </div>
 

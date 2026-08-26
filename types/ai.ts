@@ -52,6 +52,54 @@ export const AI_CATEGORY_LABELS: Record<AiEmailCategory, string> = {
   other: "Autres",
 };
 
+export const AI_CATEGORY_GROUPS = [
+  {
+    id: "business",
+    label: "Activité commerciale",
+    categories: ["client", "prospect"],
+  },
+  {
+    id: "projects",
+    label: "Projets",
+    categories: ["project", "team"],
+  },
+  {
+    id: "operations",
+    label: "Opérations",
+    categories: ["supplier", "calendar", "purchase"],
+  },
+  {
+    id: "management",
+    label: "Gestion",
+    categories: ["finance", "administration", "security"],
+  },
+  {
+    id: "communication",
+    label: "Communication",
+    categories: ["newsletter", "promotion", "notification"],
+  },
+  {
+    id: "private",
+    label: "Privé",
+    categories: ["personal", "spam", "other"],
+  },
+] as const satisfies ReadonlyArray<{
+  id: string;
+  label: string;
+  categories: readonly AiEmailCategory[];
+}>;
+
+export function aiCategoryFolderName(category: AiEmailCategory) {
+  const group = AI_CATEGORY_GROUPS.find((item) =>
+    (item.categories as readonly AiEmailCategory[]).includes(category),
+  );
+  return `AI/${group?.label ?? "Autres"}`;
+}
+
+export function aiCategoryLabelName(category: AiEmailCategory) {
+  return `${aiCategoryFolderName(category)}/${AI_CATEGORY_LABELS[category]}`;
+}
+
 export const AI_PRIORITY_LABELS: Record<AiEmailPriority, string> = {
   urgent: "Urgent",
   high: "Haute",

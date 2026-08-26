@@ -1,8 +1,10 @@
 import "server-only";
 
 import {
-  AI_CATEGORY_LABELS,
+  AI_CATEGORY_GROUPS,
   AI_PRIORITY_LABELS,
+  aiCategoryFolderName,
+  aiCategoryLabelName,
   type AiEmailCategory,
   type AiEmailPriority,
 } from "@/types/ai";
@@ -15,6 +17,8 @@ import {
 } from "@/lib/gmail";
 
 export const AI_LABEL_PREFIXES = [
+  ...AI_CATEGORY_GROUPS.map((group) => `AI/${group.label}`),
+  // Conservé pour retirer les anciens libellés plats lors de leur migration.
   "AI/Catégorie/",
   "AI/Priorité/",
   "AI/Action/",
@@ -31,7 +35,8 @@ export function aiLabelNames(
   decision: Omit<AiLabelDecision, "messageId">,
 ) {
   return [
-    `AI/Catégorie/${AI_CATEGORY_LABELS[decision.category]}`,
+    aiCategoryFolderName(decision.category),
+    aiCategoryLabelName(decision.category),
     `AI/Priorité/${AI_PRIORITY_LABELS[decision.priority]}`,
     ...(decision.requiresReply ? ["AI/Action/Réponse requise"] : []),
   ];
