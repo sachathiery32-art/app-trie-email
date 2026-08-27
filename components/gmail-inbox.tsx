@@ -538,6 +538,10 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
   const [isSyncing, setIsSyncing] = useState(false);
   const [actionPending, setActionPending] = useState(false);
   const [isTriageRunning, setIsTriageRunning] = useState(false);
+  const [triageProgress, setTriageProgress] = useState<{
+    completed: number;
+    total: number;
+  } | null>(null);
   const [showFolderForm, setShowFolderForm] = useState(false);
   const [folderName, setFolderName] = useState("");
   const [folderParent, setFolderParent] = useState("");
@@ -754,34 +758,61 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
       if (triageInFlight.current) {
         throw new Error("Un classement IA est déjà en cours.");
       }
-      const ids = [...new Set(messageIds)].slice(0, 10);
+      const ids = [...new Set(messageIds)].slice(0, 100);
       if (!ids.length) return [];
 
       triageInFlight.current = true;
       setIsTriageRunning(true);
+      setTriageProgress({ completed: 0, total: ids.length });
       try {
-        const response = await fetch("/api/gmail/ai/triage", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ messageIds: ids, applyLabels: true }),
-        });
-        const payload = (await response.json()) as GmailAiTriageResponse;
-        if (!response.ok || !payload.success) {
-          throw new Error(payload.success ? "Classement incomplet." : payload.error);
+        const items: GmailAiTriageItem[] = [];
+        for (let index = 0; index < ids.length; index += 10) {
+          const batch = ids.slice(index, index + 10);
+          let completedBatch = false;
+          for (let attempt = 0; attempt < 3 && !completedBatch; attempt += 1) {
+            const response = await fetch("/api/gmail/ai/triage", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ messageIds: batch, applyLabels: true }),
+            });
+            const payload = (await response.json()) as GmailAiTriageResponse;
+            if (response.status === 429 && attempt < 2) {
+              const retrySeconds = Number(response.headers.get("Retry-After"));
+              const delay = Math.min(
+                30_000,
+                Math.max(2_000, (Number.isFinite(retrySeconds) ? retrySeconds : 5) * 1_000),
+              );
+              await new Promise((resolve) => window.setTimeout(resolve, delay));
+              continue;
+            }
+            if (!response.ok || !payload.success) {
+              throw new Error(payload.success ? "Classement incomplet." : payload.error);
+            }
+            items.push(...payload.data.items);
+            completedBatch = true;
+            setTriageProgress({
+              completed: Math.min(index + batch.length, ids.length),
+              total: ids.length,
+            });
+          }
+          if (!completedBatch) {
+            throw new Error(`Classement interrompu après ${items.length} message(s).`);
+          }
         }
 
         detailCache.current.clear();
         setNotice({
           tone: "success",
           message: options?.automatic
-            ? `${payload.data.items.length} nouveau(x) message(s) classé(s) automatiquement.`
-            : `${payload.data.items.length} message(s) classé(s) et synchronisé(s) avec Gmail.`,
+            ? `${items.length} nouveau(x) message(s) classé(s) automatiquement.`
+            : `${items.length} message(s) classé(s) et synchronisé(s) avec Gmail.`,
         });
         await loadInbox(pageTokens[pageIndex] ?? null, { silent: true });
-        return payload.data.items;
+        return items;
       } finally {
         triageInFlight.current = false;
         setIsTriageRunning(false);
+        setTriageProgress(null);
       }
     },
     [loadInbox, pageIndex, pageTokens],
@@ -810,7 +841,7 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
       setNotice({ tone: "success", message: `Le dossier « ${name} » a été créé.` });
       await loadInbox(pageTokens[pageIndex] ?? null, { silent: true });
 
-      const visibleIds = data?.messages.slice(0, 10).map((message) => message.id) ?? [];
+      const visibleIds = data?.messages.slice(0, 100).map((message) => message.id) ?? [];
       visibleIds.forEach((id) => autoTriageSeen.current.delete(id));
       if (visibleIds.length) {
         void runAiTriage(visibleIds, { automatic: true }).catch((error) => {
@@ -855,7 +886,7 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
           !message.labelIds.some((labelId) => categoryLabelIds.has(labelId)) &&
           !autoTriageSeen.current.has(message.id),
       )
-      .slice(0, 5)
+      .slice(0, 10)
       .map((message) => message.id);
     if (!candidates.length) return;
 
@@ -1291,6 +1322,7 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
                 <GmailAiCommandCenter
                   messages={data?.messages ?? []}
                   isTriageRunning={isTriageRunning}
+                  triageProgress={triageProgress}
                   onTriage={runAiTriage}
                   onApplyGmailQuery={applyGmailQuery}
                   preferences={aiPreferences}

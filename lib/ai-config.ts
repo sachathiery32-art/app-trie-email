@@ -6,7 +6,7 @@ export const AI_INPUT_LIMITS = {
   emailBodyCharacters: 16_000,
   threadCharacters: 48_000,
   attachmentCharacters: 50_000,
-  searchMessages: 8,
+  searchMessages: 6,
   triageMessages: 10,
 } as const;
 

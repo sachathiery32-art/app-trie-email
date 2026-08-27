@@ -2,10 +2,11 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { AI_INPUT_LIMITS, GROQ_MODEL, UNTRUSTED_EMAIL_RULE } from "@/lib/ai-config";
 import { aiRequestError } from "@/lib/ai-route";
-import { searchGmailMessages } from "@/lib/gmail";
+import { GmailApiError, searchGmailMessages } from "@/lib/gmail";
 import { gmailErrorResponse } from "@/lib/gmail-route";
-import { getGoogleAccessToken } from "@/lib/google-session";
+import { GoogleSessionError, getGoogleAccessToken } from "@/lib/google-session";
 import { groq } from "@/lib/groq";
+import { groqErrorResponse } from "@/lib/groq-route";
 import type { GmailAiSearchResponse } from "@/types/ai";
 
 export const dynamic = "force-dynamic";
@@ -55,7 +56,8 @@ export async function POST(request: NextRequest) {
     const accessToken = await getGoogleAccessToken(request);
     const queryCompletion = await groq.chat.completions.create({
       model: GROQ_MODEL,
-      max_tokens: 300,
+      max_tokens: 900,
+      reasoning_effort: "low",
       messages: [
         {
           role: "system",
@@ -115,7 +117,8 @@ export async function POST(request: NextRequest) {
 
     const answerCompletion = await groq.chat.completions.create({
       model: GROQ_MODEL,
-      max_tokens: 1_200,
+      max_tokens: 1_800,
+      reasoning_effort: "low",
       messages: [
         {
           role: "system",
@@ -136,7 +139,7 @@ export async function POST(request: NextRequest) {
               sender: message.senderEmail,
               subject: message.subject,
               date: new Date(message.receivedAt).toISOString(),
-              content: message.bodyText.slice(0, 10_000),
+              content: message.bodyText.slice(0, 2_500),
             })),
           }),
         },
@@ -161,6 +164,8 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error("Échec de la recherche IA Gmail.", error);
-    return gmailErrorResponse(error);
+    return error instanceof GmailApiError || error instanceof GoogleSessionError
+      ? gmailErrorResponse(error)
+      : groqErrorResponse(error, "search");
   }
 }

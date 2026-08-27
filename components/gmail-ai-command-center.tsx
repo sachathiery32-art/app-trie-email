@@ -15,6 +15,7 @@ import type { GmailMessageSummary } from "@/types/gmail";
 type Props = {
   messages: GmailMessageSummary[];
   isTriageRunning: boolean;
+  triageProgress: { completed: number; total: number } | null;
   onTriage: (messageIds: string[]) => Promise<GmailAiTriageItem[]>;
   onApplyGmailQuery: (query: string) => void;
   preferences: AiUserPreferences;
@@ -24,6 +25,7 @@ type Props = {
 export function GmailAiCommandCenter({
   messages,
   isTriageRunning,
+  triageProgress,
   onTriage,
   onApplyGmailQuery,
   preferences,
@@ -59,20 +61,34 @@ export function GmailAiCommandCenter({
     if (!cleanQuestion || searchState.status === "loading") return;
     setSearchState({ status: "loading" });
     try {
-      const response = await fetch("/api/gmail/ai/search", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: cleanQuestion }),
-      });
-      const payload = (await response.json()) as GmailAiSearchResponse;
-      if (!response.ok || !payload.success) {
-        throw new Error(payload.success ? "Recherche incomplète." : payload.error);
+      let result: Extract<GmailAiSearchResponse, { success: true }> | null = null;
+      for (let attempt = 0; attempt < 3 && !result; attempt += 1) {
+        const response = await fetch("/api/gmail/ai/search", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ question: cleanQuestion }),
+        });
+        const payload = (await response.json()) as GmailAiSearchResponse;
+        if (response.status === 429 && attempt < 2) {
+          const retrySeconds = Number(response.headers.get("Retry-After"));
+          const delay = Math.min(
+            30_000,
+            Math.max(2_000, (Number.isFinite(retrySeconds) ? retrySeconds : 5) * 1_000),
+          );
+          await new Promise((resolve) => window.setTimeout(resolve, delay));
+          continue;
+        }
+        if (!response.ok || !payload.success) {
+          throw new Error(payload.success ? "Recherche incomplète." : payload.error);
+        }
+        result = payload;
       }
+      if (!result) throw new Error("L’assistant Gmail reste temporairement indisponible.");
       setSearchState({
         status: "success",
-        answer: payload.data.answer,
-        gmailQuery: payload.data.gmailQuery,
-        sources: payload.data.sources,
+        answer: result.data.answer,
+        gmailQuery: result.data.gmailQuery,
+        sources: result.data.sources,
       });
     } catch (error) {
       setSearchState({
@@ -90,7 +106,7 @@ export function GmailAiCommandCenter({
     setConfirmTriage(false);
     setTriageState({ status: "idle" });
     try {
-      const items = await onTriage(messages.slice(0, 10).map((message) => message.id));
+      const items = await onTriage(messages.slice(0, 100).map((message) => message.id));
       setTriageState({ status: "success", items });
     } catch (error) {
       setTriageState({
@@ -183,8 +199,8 @@ export function GmailAiCommandCenter({
         <div className="rounded-xl border border-blue-200 bg-white p-4">
           <p className="font-semibold text-blue-950">Tri IA de la page visible</p>
           <p className="mt-1 text-sm leading-6 text-blue-900">
-            Analyse jusqu’à 10 messages et crée des libellés Gmail par catégorie, priorité
-            et réponse attendue.
+            Analyse jusqu’à 100 messages par lots sécurisés et crée les libellés Gmail
+            par catégorie, priorité et réponse attendue.
           </p>
           {confirmTriage ? (
             <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3">
@@ -217,7 +233,11 @@ export function GmailAiCommandCenter({
               className="mt-3 inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 text-sm font-semibold text-blue-900 transition-colors hover:bg-blue-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-900 disabled:cursor-wait disabled:opacity-60"
             >
               <MailboxIcon name="label" className="size-4" />
-              {isTriageRunning ? "Classement en cours…" : "Classer la page avec Groq"}
+              {isTriageRunning
+                ? triageProgress
+                  ? `Classement ${triageProgress.completed}/${triageProgress.total}…`
+                  : "Préparation du classement…"
+                : `Classer jusqu’à ${Math.min(messages.length, 100)} messages`}
             </button>
           )}
           {triageState.status === "success" ? (

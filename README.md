@@ -20,7 +20,8 @@ la boîte Gmail depuis une interface secondaire.
   réduction, développement et changement de ton du brouillon ;
 - analyse d'une conversation : résumé, catégorie, priorité, réponse attendue,
   actions, échéances, risques et propositions de réponse ;
-- classement manuel ou automatique par libellés Gmail `AI/Catégorie`,
+- classement manuel ou automatique de 100 messages par page, avec reprise par
+  lots en cas de quota temporaire, par libellés Gmail `AI/Catégorie`,
   `AI/Priorité` et `AI/Action` ;
 - création libre de dossiers et sous-dossiers Gmail depuis la barre latérale ;
 - classement automatique des nouveaux messages dans les dossiers personnalisés

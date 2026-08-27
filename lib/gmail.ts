@@ -9,7 +9,7 @@ import type {
 } from "@/types/gmail";
 
 const GMAIL_API_BASE = "https://gmail.googleapis.com/gmail/v1";
-const INBOX_PAGE_SIZE = 20;
+const INBOX_PAGE_SIZE = 100;
 
 type GmailMessageReference = {
   id?: string;
