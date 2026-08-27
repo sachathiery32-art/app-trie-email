@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -22,6 +23,7 @@ import {
   type AiRewriteAction,
   type GmailAiRewriteResponse,
 } from "@/types/ai";
+import type { MailTemplate } from "@/types/settings";
 
 const COMPOSER_TITLES: Record<ComposerSession["mode"], string> = {
   compose: "Nouveau message",
@@ -48,11 +50,20 @@ const REWRITE_LABELS: Record<AiRewriteAction, string> = {
 type EmailComposerProps = {
   session: ComposerSession;
   onClose: () => void;
-  onSaveDraft?: (message: ComposerMessage) => void;
-  onSend: (message: ComposerMessage, attachments: File[]) => void | Promise<void>;
+  onSaveDraft?: (
+    message: ComposerMessage,
+    attachments: File[],
+    draftId?: string,
+  ) => Promise<string> | string | void;
+  onSend: (
+    message: ComposerMessage,
+    attachments: File[],
+    options?: { scheduledFor?: string; draftId?: string },
+  ) => void | Promise<void>;
   deliveryMode?: "demo" | "gmail";
   senderEmail?: string;
   writingStyle?: string;
+  templates?: MailTemplate[];
 };
 
 export function EmailComposer({
@@ -63,6 +74,7 @@ export function EmailComposer({
   deliveryMode = "demo",
   senderEmail,
   writingStyle = "",
+  templates = [],
 }: EmailComposerProps) {
   const [message, setMessage] = useState<ComposerMessage>({
     to: session.to,
@@ -93,6 +105,11 @@ export function EmailComposer({
     | { status: "error"; message: string }
   >({ status: "editing" });
   const [attachments, setAttachments] = useState<File[]>([]);
+  const [draftState, setDraftState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [showSchedule, setShowSchedule] = useState(false);
+  const [scheduledFor, setScheduledFor] = useState("");
+  const [minimumScheduleDate] = useState(() => new Date(Date.now() + 60_000).toISOString().slice(0, 16));
+  const [contactSuggestions, setContactSuggestions] = useState<Array<{ name: string; email: string }>>([]);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [rewriteState, setRewriteState] = useState<
     | { status: "idle" }
@@ -101,6 +118,68 @@ export function EmailComposer({
     | { status: "error"; message: string }
   >({ status: "idle" });
   const sendInFlight = useRef(false);
+  const draftSequence = useRef(0);
+  const lastSavedDraft = useRef("");
+  const draftIdRef = useRef(session.draftId);
+  const draftSavePromise = useRef<Promise<string | undefined> | null>(null);
+
+  const saveDraftNow = useCallback(async () => {
+    if (!onSaveDraft) return draftIdRef.current;
+    const snapshot = JSON.stringify({
+      message,
+      files: attachments.map((file) => [
+        file.name,
+        file.size,
+        file.lastModified,
+      ]),
+    });
+    const hasContent =
+      Object.values(message).some((value) => value.trim()) ||
+      attachments.length > 0;
+    if (!hasContent || snapshot === lastSavedDraft.current) {
+      return draftIdRef.current;
+    }
+
+    const sequence = ++draftSequence.current;
+    setDraftState("saving");
+    const previousSave = draftSavePromise.current;
+    const pendingSave = (previousSave ?? Promise.resolve(draftIdRef.current))
+      .catch(() => draftIdRef.current)
+      .then(async () => {
+        const savedDraftId = await onSaveDraft(
+          message,
+          attachments,
+          draftIdRef.current,
+        );
+        const resolvedDraftId = savedDraftId || draftIdRef.current;
+        if (resolvedDraftId) {
+          draftIdRef.current = resolvedDraftId;
+        }
+        lastSavedDraft.current = snapshot;
+        return resolvedDraftId;
+      });
+    draftSavePromise.current = pendingSave;
+
+    try {
+      const savedDraftId = await pendingSave;
+      if (sequence === draftSequence.current) setDraftState("saved");
+      return savedDraftId;
+    } catch {
+      if (sequence === draftSequence.current) setDraftState("error");
+      return draftIdRef.current;
+    } finally {
+      if (draftSavePromise.current === pendingSave) {
+        draftSavePromise.current = null;
+      }
+    }
+  }, [attachments, message, onSaveDraft]);
+
+  const closeComposer = useCallback(async () => {
+    if (deliveryMode === "gmail") {
+      await saveDraftNow();
+    }
+    onClose();
+  }, [deliveryMode, onClose, saveDraftNow]);
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -108,7 +187,7 @@ export function EmailComposer({
 
     function closeOnEscape(event: KeyboardEvent) {
       if (event.key === "Escape" && sendState.status !== "sending") {
-        onClose();
+        void closeComposer();
       }
     }
 
@@ -118,7 +197,38 @@ export function EmailComposer({
       document.body.style.overflow = previousOverflow;
       window.removeEventListener("keydown", closeOnEscape);
     };
-  }, [onClose, sendState.status]);
+  }, [closeComposer, sendState.status]);
+
+  useEffect(() => {
+    if (deliveryMode !== "gmail" || !onSaveDraft) return;
+    const snapshot = JSON.stringify({ message, files: attachments.map((file) => [file.name, file.size, file.lastModified]) });
+    if (snapshot === lastSavedDraft.current) return;
+    const timeout = window.setTimeout(() => {
+      void saveDraftNow();
+    }, 1_500);
+    return () => window.clearTimeout(timeout);
+  }, [attachments, deliveryMode, message, onSaveDraft, saveDraftNow]);
+
+  useEffect(() => {
+    if (deliveryMode !== "gmail") return;
+    const fragment = message.to.split(/[;,]/).at(-1)?.trim() ?? "";
+    if (fragment.length < 2 || fragment.includes("@") && fragment.includes(".")) {
+      return;
+    }
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => {
+      void fetch(`/api/google/contacts?q=${encodeURIComponent(fragment)}`, { signal: controller.signal })
+        .then((response) => response.json())
+        .then((payload: { success?: boolean; data?: Array<{ name: string; email: string }> }) => {
+          if (payload.success) setContactSuggestions(payload.data ?? []);
+        })
+        .catch(() => undefined);
+    }, 250);
+    return () => {
+      window.clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [deliveryMode, message.to]);
 
   function updateField(field: keyof ComposerMessage, value: string) {
     if (sendState.status !== "editing") {
@@ -128,11 +238,36 @@ export function EmailComposer({
       ...currentMessage,
       [field]: value,
     }));
+    if (field === "to") {
+      const fragment = value.split(/[;,]/).at(-1)?.trim() ?? "";
+      if (fragment.length < 2 || (fragment.includes("@") && fragment.includes("."))) {
+        setContactSuggestions([]);
+      }
+    }
   }
 
-  function submitMessage(event: FormEvent<HTMLFormElement>) {
+  function chooseContact(email: string) {
+    const recipients = message.to.split(/[;,]/);
+    recipients[recipients.length - 1] = email;
+    updateField("to", `${recipients.map((item) => item.trim()).filter(Boolean).join(", ")}, `);
+    setContactSuggestions([]);
+  }
+
+  function applyTemplate(templateId: string) {
+    const selected = templates.find((item) => item.id === templateId);
+    if (!selected) return;
+    setMessage((current) => ({
+      ...current,
+      subject: selected.subject || current.subject,
+      body: selected.body,
+    }));
+    setSendState({ status: "editing" });
+  }
+
+  async function submitMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (deliveryMode === "gmail") {
+      await saveDraftNow();
       setSendState({ status: "confirming" });
       return;
     }
@@ -147,7 +282,10 @@ export function EmailComposer({
     sendInFlight.current = true;
     setSendState({ status: "sending" });
     try {
-      await onSend(message, attachments);
+      await onSend(message, attachments, {
+        ...(scheduledFor ? { scheduledFor: new Date(scheduledFor).toISOString() } : {}),
+        ...(draftIdRef.current ? { draftId: draftIdRef.current } : {}),
+      });
     } catch (error) {
       setSendState({
         status: "error",
@@ -326,10 +464,15 @@ export function EmailComposer({
             >
               {COMPOSER_TITLES[session.mode]}
             </h2>
+            {deliveryMode === "gmail" && onSaveDraft ? (
+              <p aria-live="polite" className={`mt-0.5 text-xs ${draftState === "error" ? "text-red-700" : "text-[#667085]"}`}>
+                {draftState === "saving" ? "Enregistrement dans Gmail…" : draftState === "saved" ? "Brouillon Gmail enregistré" : draftState === "error" ? "Brouillon non enregistré" : "Sauvegarde automatique active"}
+              </p>
+            ) : null}
           </div>
           <button
             type="button"
-            onClick={onClose}
+            onClick={() => void closeComposer()}
             disabled={sendState.status === "sending"}
             aria-label="Fermer la rédaction"
             className="flex size-11 cursor-pointer items-center justify-center rounded-xl text-[#5f6979] transition-colors duration-200 hover:bg-[#f1f2f4] hover:text-[#171717] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#171717] disabled:cursor-not-allowed disabled:opacity-50"
@@ -369,6 +512,18 @@ export function EmailComposer({
                   placeholder="nom@exemple.com"
                   className="mt-1 min-h-12 w-full rounded-xl border border-[#d9dce2] px-4 text-base text-[#171717] outline-none transition-colors focus:border-[#171717] focus:ring-1 focus:ring-[#171717]"
                 />
+                {contactSuggestions.length ? (
+                  <ul role="listbox" aria-label="Contacts suggérés" className="relative z-20 mt-1 overflow-hidden rounded-xl border border-[#d4d4d8] bg-white shadow-lg">
+                    {contactSuggestions.map((contact) => (
+                      <li key={contact.email}>
+                        <button type="button" role="option" aria-selected="false" onClick={() => chooseContact(contact.email)} className="flex min-h-11 w-full cursor-pointer items-center gap-3 px-3 text-left transition-colors hover:bg-blue-50 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-blue-700">
+                          <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-blue-800">{contact.name.slice(0, 1).toUpperCase()}</span>
+                          <span className="min-w-0"><span className="block truncate text-sm font-semibold text-[#18181b]">{contact.name}</span><span className="block truncate text-xs text-[#52525b]">{contact.email}</span></span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
                 <p className="mt-1 text-xs text-[#667085]">
                   Séparez plusieurs adresses par une virgule.
                 </p>
@@ -440,6 +595,24 @@ export function EmailComposer({
                   </p>
                 ) : null}
               </div>
+
+              {templates.length ? (
+                <div>
+                  <label htmlFor="composer-template" className="text-sm font-semibold text-[#394150]">Modèle</label>
+                  <select
+                    id="composer-template"
+                    defaultValue=""
+                    onChange={(event) => {
+                      applyTemplate(event.target.value);
+                      event.target.value = "";
+                    }}
+                    className="mt-2 min-h-12 w-full cursor-pointer rounded-xl border border-[#d9dce2] bg-white px-3 text-base text-[#171717] outline-none focus:border-blue-700 focus:ring-1 focus:ring-blue-700"
+                  >
+                    <option value="">Insérer un modèle enregistré…</option>
+                    {templates.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                  </select>
+                </div>
+              ) : null}
 
               {(session.mode === "compose" ||
                 ((session.mode === "reply" || session.mode === "replyAll") &&
@@ -720,8 +893,10 @@ export function EmailComposer({
                   <div>
                     <p className="font-semibold text-blue-950">
                       {sendState.status === "sending"
-                        ? "Envoi Gmail en cours…"
-                        : "Confirmer l’envoi réel"}
+                        ? "Traitement Gmail en cours…"
+                        : scheduledFor
+                          ? "Confirmer l’envoi programmé"
+                          : "Confirmer l’envoi réel"}
                     </p>
                     <p className="mt-1 text-sm leading-6 text-blue-900">
                       À <strong>{message.to}</strong> · Objet :{" "}
@@ -735,8 +910,9 @@ export function EmailComposer({
                       </p>
                     ) : null}
                     <p className="mt-1 text-xs leading-5 text-blue-800">
-                      Après confirmation, Gmail remettra réellement ce message
-                      aux destinataires.
+                      {scheduledFor
+                        ? `Le message partira le ${new Date(scheduledFor).toLocaleString("fr-FR")}.`
+                        : "Vous pourrez annuler l’envoi pendant le délai configuré."}
                     </p>
                     {attachments.length ? (
                       <p className="mt-1 text-xs font-semibold text-blue-900">
@@ -763,8 +939,10 @@ export function EmailComposer({
                     >
                       <MailboxIcon name="send" className="size-4" />
                       {sendState.status === "sending"
-                        ? "Envoi…"
-                        : "Envoyer maintenant"}
+                        ? "Traitement…"
+                        : scheduledFor
+                          ? "Programmer"
+                          : "Envoyer maintenant"}
                     </button>
                   </div>
                 </div>
@@ -772,33 +950,39 @@ export function EmailComposer({
             </section>
           ) : null}
 
-          <footer className="flex flex-col-reverse gap-3 border-t border-[#e3e6eb] bg-[#fafafa] p-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-            <p className="text-center text-xs leading-5 text-[#667085] sm:text-left">
-              {deliveryMode === "gmail"
-                ? `Envoi depuis ${senderEmail || "le compte Gmail connecté"}.`
-                : "Aucun email réel ne sera envoyé dans cette version."}
-            </p>
-            <div
-              className={onSaveDraft ? "grid grid-cols-2 gap-2 sm:flex" : "flex"}
-            >
-              {onSaveDraft ? (
-                <button
-                  type="button"
-                  onClick={() => onSaveDraft(message)}
-                  className="inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-xl border border-[#cfd3da] bg-white px-4 text-sm font-semibold text-[#394150] transition-colors duration-200 hover:bg-[#f1f2f4] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#171717]"
-                >
-                  <MailboxIcon name="draft" className="size-4" />
-                  Brouillon
+          <footer className="flex flex-col gap-3 border-t border-[#e3e6eb] bg-[#fafafa] p-4 sm:px-6">
+            {deliveryMode === "gmail" ? (
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <button type="button" onClick={() => setShowSchedule((current) => !current)} aria-expanded={showSchedule} className="inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-xl border border-[#cfd3da] bg-white px-4 text-sm font-semibold text-[#394150] transition-colors hover:bg-[#f1f2f4] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700">
+                  <MailboxIcon name="clock" className="size-4" />
+                  {showSchedule ? "Masquer la programmation" : "Programmer l’envoi"}
                 </button>
-              ) : null}
-              <button
-                type="submit"
-                disabled={sendState.status !== "editing"}
-                className="inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-xl bg-[#2563eb] px-4 text-sm font-semibold text-white transition-colors duration-200 hover:bg-[#1d4ed8] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#171717] disabled:cursor-wait disabled:bg-[#93c5fd]"
-              >
-                <MailboxIcon name="send" className="size-4" />
-                {deliveryMode === "gmail" ? "Vérifier l’envoi" : "Envoyer la démo"}
-              </button>
+                {showSchedule ? (
+                  <label className="text-sm font-semibold text-[#394150]">
+                    Date et heure
+                    <input type="datetime-local" min={minimumScheduleDate} value={scheduledFor} onChange={(event) => setScheduledFor(event.target.value)} className="ml-2 min-h-11 rounded-xl border border-[#cfd3da] bg-white px-3 text-base outline-none focus:border-blue-700 focus:ring-1 focus:ring-blue-700" />
+                  </label>
+                ) : null}
+              </div>
+            ) : null}
+            <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-center text-xs leading-5 text-[#667085] sm:text-left">
+                {deliveryMode === "gmail"
+                  ? `Envoi depuis ${senderEmail || "le compte Gmail connecté"}.`
+                  : "Aucun email réel ne sera envoyé dans cette version."}
+              </p>
+              <div className={onSaveDraft ? "grid grid-cols-2 gap-2 sm:flex" : "flex"}>
+                {onSaveDraft ? (
+                  <button type="button" onClick={() => void saveDraftNow()} disabled={draftState === "saving"} className="inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-xl border border-[#cfd3da] bg-white px-4 text-sm font-semibold text-[#394150] transition-colors duration-200 hover:bg-[#f1f2f4] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#171717] disabled:cursor-wait disabled:opacity-60">
+                    <MailboxIcon name="draft" className="size-4" />
+                    {draftState === "saving" ? "Enregistrement…" : "Enregistrer"}
+                  </button>
+                ) : null}
+                <button type="submit" disabled={sendState.status !== "editing" || (showSchedule && !scheduledFor)} className="inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-xl bg-[#2563eb] px-4 text-sm font-semibold text-white transition-colors duration-200 hover:bg-[#1d4ed8] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#171717] disabled:cursor-not-allowed disabled:bg-[#93c5fd]">
+                  <MailboxIcon name="send" className="size-4" />
+                  {deliveryMode === "gmail" ? (scheduledFor ? "Vérifier la programmation" : "Vérifier l’envoi") : "Envoyer la démo"}
+                </button>
+              </div>
             </div>
           </footer>
         </form>

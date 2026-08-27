@@ -1,11 +1,15 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import {
+  saveGmailDraft,
+  sendGmailDraft,
   sendGmailMessage,
   type GmailOutgoingAttachment,
 } from "@/lib/gmail";
 import { gmailErrorResponse } from "@/lib/gmail-route";
 import { getGoogleAccessToken } from "@/lib/google-session";
+import { requireAllowedGoogleUser } from "@/lib/google-session";
+import { getMailSettings, scheduleGmailDraft } from "@/lib/mail-store";
 import type {
   GmailSendRequest,
   GmailSendResponse,
@@ -107,9 +111,12 @@ function formText(formData: FormData, name: string) {
 
 async function parseSendRequest(request: NextRequest) {
   if (!request.headers.get("content-type")?.startsWith("multipart/form-data")) {
+    const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
     return {
-      body: (await request.json().catch(() => null)) as unknown,
+      body: body as unknown,
       files: [] as File[],
+      draftId: typeof body?.draftId === "string" ? body.draftId.trim() : "",
+      scheduledFor: typeof body?.scheduledFor === "string" ? body.scheduledFor.trim() : "",
     };
   }
 
@@ -127,13 +134,18 @@ async function parseSendRequest(request: NextRequest) {
     files: formData
       .getAll("attachments")
       .filter((value): value is File => value instanceof File),
+    draftId: formText(formData, "draftId").trim(),
+    scheduledFor: formText(formData, "scheduledFor").trim(),
   };
 }
 
 /** Valide puis envoie un message réel depuis le compte Gmail connecté. */
 export async function POST(request: NextRequest) {
   try {
-    const accessToken = await getGoogleAccessToken(request);
+    const [accessToken, accountEmail] = await Promise.all([
+      getGoogleAccessToken(request),
+      requireAllowedGoogleUser(request),
+    ]);
     const parsedRequest = await parseSendRequest(request);
     const message = validateSendRequest(parsedRequest.body);
     const totalAttachmentBytes = parsedRequest.files.reduce(
@@ -147,7 +159,8 @@ export async function POST(request: NextRequest) {
       totalAttachmentBytes > MAX_ATTACHMENT_BYTES ||
       parsedRequest.files.some(
         (file) => file.name.length > 180 || file.size === 0,
-      )
+      ) ||
+      (parsedRequest.draftId && !MESSAGE_ID_PATTERN.test(parsedRequest.draftId))
     ) {
       return json(
         {
@@ -167,12 +180,65 @@ export async function POST(request: NextRequest) {
         data: Buffer.from(await file.arrayBuffer()),
       })),
     );
+
+    const requestedDate = parsedRequest.scheduledFor
+      ? new Date(parsedRequest.scheduledFor)
+      : null;
+    if (requestedDate && (!Number.isFinite(requestedDate.getTime()) || requestedDate.getTime() < Date.now() + 30_000)) {
+      return json({ success: false, code: "VALIDATION_ERROR", error: "Choisissez une date d’envoi située dans le futur." }, 400);
+    }
+    let undoSeconds = 0;
+    let databaseReady = false;
+    try {
+      const settings = await getMailSettings(accountEmail);
+      databaseReady = settings.databaseReady;
+      undoSeconds = databaseReady ? settings.preferences.undoSendSeconds : 0;
+    } catch {
+      undoSeconds = 0;
+    }
+    if (requestedDate && !databaseReady) {
+      return json(
+        {
+          success: false,
+          code: "CONFIGURATION_ERROR",
+          error:
+            "La programmation d’envoi nécessite PostgreSQL. Configurez DATABASE_URL puis réessayez.",
+        },
+        503,
+      );
+    }
+    const scheduledFor = requestedDate ?? (undoSeconds > 0 ? new Date(Date.now() + undoSeconds * 1_000) : null);
+    if (scheduledFor) {
+      const draft = await saveGmailDraft(
+        accessToken,
+        message,
+        attachments,
+        parsedRequest.draftId || undefined,
+      );
+      const scheduleId = await scheduleGmailDraft(accountEmail, draft.draftId, scheduledFor);
+      return json({
+        success: true,
+        data: {
+          status: "scheduled",
+          scheduleId,
+          gmailDraftId: draft.draftId,
+          scheduledFor: scheduledFor.toISOString(),
+          ...(!requestedDate ? { undoUntil: scheduledFor.toISOString() } : {}),
+        },
+      }, 200);
+    }
+
+    if (parsedRequest.draftId) {
+      const draft = await saveGmailDraft(accessToken, message, attachments, parsedRequest.draftId);
+      const sent = await sendGmailDraft(accessToken, draft.draftId);
+      return json({ success: true, data: { status: "sent", ...sent } }, 200);
+    }
     const sentMessage = await sendGmailMessage(
       accessToken,
       message,
       attachments,
     );
-    return json({ success: true, data: sentMessage }, 200);
+    return json({ success: true, data: { status: "sent", ...sentMessage } }, 200);
   } catch (error) {
     return gmailErrorResponse(error, "send");
   }

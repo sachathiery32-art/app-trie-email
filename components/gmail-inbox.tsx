@@ -14,6 +14,7 @@ import { EmailComposer } from "@/components/email-composer";
 import { GmailAiAssistant } from "@/components/gmail-ai-assistant";
 import { GmailAiCommandCenter } from "@/components/gmail-ai-command-center";
 import { GmailAttachmentCard } from "@/components/gmail-attachment-card";
+import { MailSettingsPanel } from "@/components/mail-settings-panel";
 import {
   MailboxIcon,
   type MailboxIconName,
@@ -27,6 +28,7 @@ import type { ComposerMessage, ComposerMode, ComposerSession } from "@/types/ema
 import type {
   GmailInboxData,
   GmailInboxResponse,
+  GmailDraftResponse,
   GmailLabelCreateResponse,
   GmailLabelSummary,
   GmailMailboxView,
@@ -37,6 +39,7 @@ import type {
   GmailModifyResponse,
   GmailSendResponse,
 } from "@/types/gmail";
+import type { MailSettingsData, MailSettingsResponse } from "@/types/settings";
 
 type AuthenticatedUser = {
   name?: string | null;
@@ -61,8 +64,20 @@ type DetailState =
 
 type Notice = { tone: "success" | "error" | "info"; message: string };
 
-const AI_PREFERENCES_KEY = "email-organizer-ai-preferences-v1";
 const PERSONAL_FOLDER_PREFIX = "Dossiers/";
+const DEFAULT_MAIL_SETTINGS: MailSettingsData = {
+  databaseReady: false,
+  preferences: {
+    autoTriage: true,
+    writingStyle: "",
+    signature: "",
+    undoSendSeconds: 10,
+    notificationsEnabled: false,
+  },
+  templates: [],
+  rules: [],
+  vapidPublicKey: "",
+};
 
 const VIEW_ITEMS: Array<{
   value: GmailMailboxView;
@@ -94,6 +109,11 @@ function formatFullDate(timestamp: number) {
     dateStyle: "long",
     timeStyle: "short",
   }).format(new Date(timestamp));
+}
+
+function toLocalDateTimeInput(date: Date) {
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 16);
 }
 
 function withSubjectPrefix(subject: string, prefix: "Re" | "Tr") {
@@ -213,27 +233,43 @@ function LoadingInbox() {
 
 function MessageRow({
   message,
-  selected,
+  active,
+  checked,
   onSelect,
+  onToggleChecked,
 }: {
   message: GmailMessageSummary;
-  selected: boolean;
+  active: boolean;
+  checked: boolean;
   onSelect: () => void;
+  onToggleChecked: () => void;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onSelect}
-      aria-pressed={selected}
-      className={`min-h-14 w-full cursor-pointer border-b border-[#e4e4e7] px-3 py-2 text-left transition-colors duration-200 focus-visible:relative focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#2563eb] md:min-h-12 md:py-0 ${
-        selected
+    <div
+      className={`flex min-h-14 w-full items-stretch border-b border-[#e4e4e7] transition-colors duration-200 md:min-h-12 ${
+        active
           ? "bg-[#dbeafe] shadow-[inset_3px_0_0_#2563eb]"
           : message.isUnread
             ? "bg-white hover:bg-[#f5f8fc]"
             : "bg-[#f8fafd] hover:bg-[#eef3f8]"
       }`}
     >
-      <div className="md:hidden">
+      <label className="flex min-h-11 w-11 shrink-0 cursor-pointer items-center justify-center">
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={onToggleChecked}
+          aria-label={`Sélectionner ${message.subject}`}
+          className="size-4 accent-blue-700"
+        />
+      </label>
+      <button
+        type="button"
+        onClick={onSelect}
+        aria-pressed={active}
+        className="min-w-0 flex-1 cursor-pointer px-1 py-2 text-left focus-visible:relative focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#2563eb] md:py-0"
+      >
+        <div className="md:hidden">
         <div className="flex items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-2">
             {message.isUnread ? (
@@ -252,9 +288,9 @@ function MessageRow({
         <p className={`mt-1 truncate text-sm ${message.isUnread ? "font-semibold text-[#18181b]" : "text-[#3f3f46]"}`}>
           {message.subject} <span className="font-normal text-[#71717a]">— {message.snippet}</span>
         </p>
-      </div>
+        </div>
 
-      <div className="hidden h-12 grid-cols-[22px_minmax(110px,155px)_minmax(180px,1fr)_72px] items-center gap-2 md:grid">
+        <div className="hidden h-12 grid-cols-[22px_minmax(110px,155px)_minmax(180px,1fr)_72px] items-center gap-2 md:grid">
         <span className="flex items-center justify-center">
           {message.isStarred ? (
             <MailboxIcon name="star" className="size-4 text-amber-600" />
@@ -276,8 +312,9 @@ function MessageRow({
         <time className={`text-right text-xs ${message.isUnread ? "font-bold text-[#18181b]" : "font-medium text-[#52525b]"}`}>
           {formatMessageDate(message.receivedAt)}
         </time>
-      </div>
-    </button>
+        </div>
+      </button>
+    </div>
   );
 }
 
@@ -290,6 +327,8 @@ function MessagePreview({
   actionPending,
   onCompose,
   onAction,
+  onReminder,
+  onEditDraft,
   onRefresh,
 }: {
   message: GmailMessageSummary | null;
@@ -300,6 +339,8 @@ function MessagePreview({
   actionPending: boolean;
   onCompose: (session: ComposerSession) => void;
   onAction: (action: GmailModifyAction, labelId?: string) => void;
+  onReminder: (kind: "snooze" | "reminder", messageIds: string[]) => void;
+  onEditDraft: (message: GmailMessageDetail) => void;
   onRefresh: () => void;
 }) {
   if (!message) {
@@ -359,6 +400,9 @@ function MessagePreview({
       </h2>
 
       <div className="mt-5 flex flex-wrap gap-2" aria-label="Actions du message">
+        {currentView === "drafts" && complete ? (
+          <ActionButton icon="draft" label="Modifier le brouillon" onClick={() => onEditDraft(complete)} />
+        ) : null}
         {canReply && complete ? (
           <>
             <ActionButton
@@ -400,6 +444,20 @@ function MessagePreview({
           disabled={actionPending}
           onClick={() => onAction(message.isStarred ? "unstar" : "star")}
         />
+        <ActionButton
+          icon="clock"
+          label="Rappeler"
+          disabled={actionPending}
+          onClick={() => onReminder("reminder", [message.id])}
+        />
+        {message.labelIds.includes("INBOX") ? (
+          <ActionButton
+            icon="clock"
+            label="Snooze"
+            disabled={actionPending}
+            onClick={() => onReminder("snooze", [message.id])}
+          />
+        ) : null}
         {currentView === "trash" ? (
           <ActionButton
             icon="restore"
@@ -530,6 +588,7 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
+  const [selectedMessageIds, setSelectedMessageIds] = useState<Set<string>>(() => new Set());
   const [detailState, setDetailState] = useState<DetailState>({ status: "idle" });
   const [pageIndex, setPageIndex] = useState(0);
   const [pageTokens, setPageTokens] = useState<Array<string | null>>([null]);
@@ -548,6 +607,30 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
   const [folderPending, setFolderPending] = useState(false);
   const [folderError, setFolderError] = useState<string | null>(null);
   const [preferencesHydrated, setPreferencesHydrated] = useState(false);
+  const [mailSettings, setMailSettings] = useState<MailSettingsData>(DEFAULT_MAIL_SETTINGS);
+  const [showSettings, setShowSettings] = useState(false);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [notifications, setNotifications] = useState<Array<{
+    id: string;
+    gmailMessageId: string | null;
+    title: string;
+    body: string;
+    createdAt: string;
+    read: boolean;
+  }>>([]);
+  const [syncMode, setSyncMode] = useState<"browser" | "activating" | "permanent" | "error">("browser");
+  const [reminderDialog, setReminderDialog] = useState<{
+    kind: "snooze" | "reminder";
+    messageIds: string[];
+  } | null>(null);
+  const [reminderDate, setReminderDate] = useState("");
+  const [minimumReminderDate] = useState(() => toLocalDateTimeInput(new Date(Date.now() + 60_000)));
+  const [reminderPending, setReminderPending] = useState(false);
+  const [pendingSend, setPendingSend] = useState<{
+    scheduleId: string;
+    scheduledFor: string;
+    undoUntil?: string;
+  } | null>(null);
   const [aiPreferences, setAiPreferences] = useState<AiUserPreferences>({
     autoTriage: true,
     writingStyle: "",
@@ -556,6 +639,7 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
   const inboxRequestSequence = useRef(0);
   const triageInFlight = useRef(false);
   const autoTriageSeen = useRef(new Set<string>());
+  const syncSetupStarted = useRef(false);
 
   const loadInbox = useCallback(
     async (
@@ -638,32 +722,39 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
   }, [loadInbox, pageIndex, pageTokens]);
 
   useEffect(() => {
-    const timeoutId = window.setTimeout(() => {
-      try {
-        const stored = window.localStorage.getItem(AI_PREFERENCES_KEY);
-        if (stored) {
-          const value = JSON.parse(stored) as Partial<AiUserPreferences>;
-          setAiPreferences({
-            autoTriage: true,
-            writingStyle:
-              typeof value.writingStyle === "string"
-                ? value.writingStyle.slice(0, 500)
-                : "",
-          });
+    const controller = new AbortController();
+    void fetch("/api/settings", { cache: "no-store", signal: controller.signal })
+      .then((response) => response.json())
+      .then((payload: MailSettingsResponse) => {
+        if (!payload.success) throw new Error(payload.error);
+        setMailSettings(payload.data);
+        setAiPreferences({
+          autoTriage: payload.data.preferences.autoTriage,
+          writingStyle: payload.data.preferences.writingStyle,
+        });
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted) {
+          console.error("Préférences serveur indisponibles.", error);
         }
-      } catch {
-        window.localStorage.removeItem(AI_PREFERENCES_KEY);
-      } finally {
-        setPreferencesHydrated(true);
-      }
-    }, 0);
-    return () => window.clearTimeout(timeoutId);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setPreferencesHydrated(true);
+      });
+    return () => controller.abort();
   }, []);
 
   useEffect(() => {
-    if (!preferencesHydrated) return;
-    window.localStorage.setItem(AI_PREFERENCES_KEY, JSON.stringify(aiPreferences));
-  }, [aiPreferences, preferencesHydrated]);
+    if (!preferencesHydrated || !mailSettings.databaseReady || syncSetupStarted.current) return;
+    syncSetupStarted.current = true;
+    setSyncMode("activating");
+    void fetch("/api/gmail/sync/setup", { method: "POST" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Synchronisation permanente non configurée.");
+        setSyncMode("permanent");
+      })
+      .catch(() => setSyncMode("error"));
+  }, [mailSettings.databaseReady, preferencesHydrated]);
 
   useEffect(() => {
     if (!selectedMessageId) {
@@ -725,6 +816,58 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
   );
   const isLoading = state.status === "loading";
 
+  const openComposer = useCallback(
+    (session: ComposerSession) => {
+      const signature = mailSettings.preferences.signature.trim();
+      if (!signature || session.mode === "draft" || session.body.includes(signature)) {
+        setComposerSession(session);
+        return;
+      }
+      const signatureBlock = `\n\n-- \n${signature}`;
+      setComposerSession({ ...session, body: `${signatureBlock}${session.body}` });
+    },
+    [mailSettings.preferences.signature],
+  );
+
+  function changeMailSettings(next: MailSettingsData) {
+    setMailSettings(next);
+    setAiPreferences({
+      autoTriage: next.preferences.autoTriage,
+      writingStyle: next.preferences.writingStyle,
+    });
+  }
+
+  function changeAiPreferences(next: AiUserPreferences) {
+    setAiPreferences(next);
+    const preferences = {
+      ...mailSettings.preferences,
+      autoTriage: next.autoTriage,
+      writingStyle: next.writingStyle,
+    };
+    setMailSettings((current) => ({ ...current, preferences }));
+    void fetch("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(preferences),
+    }).catch(() => {
+      setNotice({ tone: "error", message: "Les préférences IA n’ont pas pu être enregistrées." });
+    });
+  }
+
+  async function openNotificationCenter() {
+    setShowNotifications(true);
+    try {
+      const response = await fetch("/api/notifications", { cache: "no-store" });
+      const payload = (await response.json()) as { success?: boolean; data?: typeof notifications };
+      if (response.ok && payload.success) {
+        setNotifications(payload.data ?? []);
+        void fetch("/api/notifications", { method: "PUT" });
+      }
+    } catch {
+      setNotice({ tone: "error", message: "Les notifications ne peuvent pas être chargées." });
+    }
+  }
+
   function selectView(view: GmailMailboxView) {
     if (view === currentView) return;
     setCurrentView(view);
@@ -732,6 +875,7 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
     setPageTokens([null]);
     setSelectedMessageId(null);
     setDetailState({ status: "idle" });
+    setSelectedMessageIds(new Set());
     setNotice(null);
     detailCache.current.clear();
   }
@@ -742,6 +886,7 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
     setPageIndex(0);
     setPageTokens([null]);
     setSelectedMessageId(null);
+    setSelectedMessageIds(new Set());
     detailCache.current.clear();
   }
 
@@ -957,8 +1102,112 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
     }
   }
 
+  async function performBulkAction(
+    action: "mark_read" | "mark_unread" | "star" | "archive" | "trash",
+  ) {
+    const messageIds = [...selectedMessageIds];
+    if (!messageIds.length || actionPending) return;
+    setActionPending(true);
+    setNotice(null);
+    try {
+      const response = await fetch("/api/gmail/messages/batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, messageIds }),
+      });
+      const payload = (await response.json()) as { success?: boolean; error?: string };
+      if (!response.ok || !payload.success) throw new Error(payload.error || "Action groupée incomplète.");
+      setSelectedMessageIds(new Set());
+      setNotice({ tone: "success", message: `${messageIds.length} message(s) modifié(s) dans Gmail.` });
+      await loadInbox(pageTokens[pageIndex] ?? null);
+    } catch (error) {
+      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Action groupée impossible." });
+    } finally {
+      setActionPending(false);
+    }
+  }
+
+  function openReminder(kind: "snooze" | "reminder", messageIds: string[]) {
+    setReminderDialog({ kind, messageIds });
+    setReminderDate(toLocalDateTimeInput(new Date(Date.now() + 24 * 60 * 60 * 1_000)));
+  }
+
+  async function submitReminder(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!reminderDialog || !reminderDate || reminderPending) return;
+    setReminderPending(true);
+    try {
+      const response = await fetch("/api/gmail/reminders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          kind: reminderDialog.kind,
+          messageIds: reminderDialog.messageIds,
+          remindAt: new Date(reminderDate).toISOString(),
+        }),
+      });
+      const payload = (await response.json()) as { success?: boolean; error?: string };
+      if (!response.ok || !payload.success) throw new Error(payload.error || "Rappel incomplet.");
+      setNotice({
+        tone: "success",
+        message: reminderDialog.kind === "snooze"
+          ? `${reminderDialog.messageIds.length} message(s) masqué(s) jusqu’au rappel.`
+          : `${reminderDialog.messageIds.length} rappel(s) enregistré(s).`,
+      });
+      setSelectedMessageIds(new Set());
+      setReminderDialog(null);
+      await loadInbox(pageTokens[pageIndex] ?? null);
+    } catch (error) {
+      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Rappel impossible." });
+    } finally {
+      setReminderPending(false);
+    }
+  }
+
+  const saveDraft = useCallback(
+    async (message: ComposerMessage, attachments: File[], draftId?: string) => {
+      if (!composerSession) throw new Error("La fenêtre de rédaction a expiré.");
+      const formData = new FormData();
+      formData.set("mode", composerSession.mode === "draft" ? "compose" : composerSession.mode);
+      if (composerSession.sourceEmailId) formData.set("sourceMessageId", composerSession.sourceEmailId);
+      if (draftId) formData.set("draftId", draftId);
+      for (const [key, value] of Object.entries(message)) formData.set(key, value);
+      for (const attachment of attachments) formData.append("attachments", attachment);
+      const response = await fetch("/api/gmail/drafts", { method: "POST", body: formData });
+      const payload = (await response.json().catch(() => null)) as GmailDraftResponse | null;
+      if (!payload || !response.ok || !payload.success) {
+        throw new Error(payload && !payload.success ? payload.error : "Le brouillon Gmail n’a pas pu être enregistré.");
+      }
+      return payload.data.draftId;
+    },
+    [composerSession],
+  );
+
+  async function editGmailDraft(message: GmailMessageDetail) {
+    try {
+      const response = await fetch(`/api/gmail/drafts?messageId=${encodeURIComponent(message.id)}`, { cache: "no-store" });
+      const payload = (await response.json()) as GmailDraftResponse;
+      if (!response.ok || !payload.success) throw new Error(payload.success ? "Brouillon incomplet." : payload.error);
+      setComposerSession({
+        mode: "draft",
+        draftId: payload.data.draftId,
+        to: message.recipients,
+        cc: message.cc,
+        bcc: "",
+        subject: message.subject,
+        body: message.bodyText,
+      });
+    } catch (error) {
+      setNotice({ tone: "error", message: error instanceof Error ? error.message : "Brouillon indisponible." });
+    }
+  }
+
   const sendMessage = useCallback(
-    async (message: ComposerMessage, attachments: File[]) => {
+    async (
+      message: ComposerMessage,
+      attachments: File[],
+      options?: { scheduledFor?: string; draftId?: string },
+    ) => {
       if (!composerSession) throw new Error("La fenêtre de rédaction a expiré.");
       const formData = new FormData();
       formData.set(
@@ -968,6 +1217,8 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
       if (composerSession.sourceEmailId) {
         formData.set("sourceMessageId", composerSession.sourceEmailId);
       }
+      if (options?.draftId) formData.set("draftId", options.draftId);
+      if (options?.scheduledFor) formData.set("scheduledFor", options.scheduledFor);
       for (const [key, value] of Object.entries(message)) formData.set(key, value);
       for (const attachment of attachments) formData.append("attachments", attachment);
 
@@ -980,15 +1231,54 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
       }
 
       setComposerSession(null);
-      setNotice({
-        tone: "success",
-        message: `Message remis à Gmail avec succès (identifiant ${payload.data.messageId}).`,
-      });
+      if (payload.data.status === "scheduled") {
+        const scheduledData = payload.data;
+        setPendingSend({
+          scheduleId: scheduledData.scheduleId,
+          scheduledFor: scheduledData.scheduledFor,
+          undoUntil: scheduledData.undoUntil,
+        });
+        setNotice({
+          tone: "success",
+          message: scheduledData.undoUntil
+            ? "Message prêt. Vous pouvez encore annuler l’envoi."
+            : `Envoi programmé le ${new Date(scheduledData.scheduledFor).toLocaleString("fr-FR")}.`,
+        });
+        if (scheduledData.undoUntil) {
+          const delay = Math.max(0, new Date(scheduledData.undoUntil).getTime() - Date.now() + 150);
+          window.setTimeout(() => {
+            void fetch(`/api/gmail/scheduled/${encodeURIComponent(scheduledData.scheduleId)}`, { method: "POST" })
+              .then((response) => {
+                if (response.ok) setNotice({ tone: "success", message: "Message envoyé par Gmail." });
+                else setNotice({ tone: "error", message: "L’envoi est resté dans la file d’attente et sera réessayé par le serveur." });
+              })
+              .finally(() => {
+                setPendingSend((current) => current?.scheduleId === scheduledData.scheduleId ? null : current);
+                void loadInbox(pageTokens[pageIndex] ?? null, { silent: true });
+              });
+          }, delay);
+        }
+      } else {
+        setNotice({ tone: "success", message: `Message remis à Gmail avec succès (identifiant ${payload.data.messageId}).` });
+      }
       detailCache.current.clear();
       void loadInbox(pageTokens[pageIndex] ?? null, { silent: true });
     },
     [composerSession, loadInbox, pageIndex, pageTokens],
   );
+
+  async function cancelPendingSend() {
+    if (!pendingSend) return;
+    const response = await fetch(`/api/gmail/scheduled/${encodeURIComponent(pendingSend.scheduleId)}`, { method: "DELETE" });
+    const payload = (await response.json().catch(() => null)) as { success?: boolean; error?: string; data?: { gmailDraftId?: string } } | null;
+    if (!response.ok || !payload?.success) {
+      setNotice({ tone: "error", message: payload?.error || "L’envoi n’a pas pu être annulé." });
+      return;
+    }
+    setPendingSend(null);
+    setNotice({ tone: "info", message: "Envoi annulé. Le message reste dans les brouillons Gmail." });
+    void loadInbox(pageTokens[pageIndex] ?? null, { silent: true });
+  }
 
   function showNextPage() {
     if (!data?.nextPageToken || isLoading) return;
@@ -1042,8 +1332,33 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
           <div className="flex items-center gap-2">
             <span className="hidden items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-900 sm:inline-flex">
               <span className="size-2 rounded-full bg-emerald-600" />
-              {isSyncing ? "Synchronisation…" : "Gmail synchronisé"}
+              {isSyncing
+                ? "Synchronisation…"
+                : syncMode === "permanent"
+                  ? "Sync permanente"
+                  : syncMode === "activating"
+                    ? "Activation sync…"
+                    : syncMode === "error"
+                      ? "Sync à configurer"
+                      : "Gmail synchronisé"}
             </span>
+            <button
+              type="button"
+              onClick={() => void openNotificationCenter()}
+              aria-label="Afficher les notifications"
+              className="relative flex size-11 cursor-pointer items-center justify-center rounded-xl border border-[#d4d4d8] bg-white text-[#3f3f46] transition-colors hover:bg-[#f4f4f5] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700"
+            >
+              <MailboxIcon name="bell" className="size-5" />
+              {notifications.some((item) => !item.read) ? <span className="absolute right-2 top-2 size-2 rounded-full bg-red-600"><span className="sr-only">Nouvelles notifications</span></span> : null}
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowSettings(true)}
+              aria-label="Ouvrir les préférences"
+              className="flex size-11 cursor-pointer items-center justify-center rounded-xl border border-[#d4d4d8] bg-white text-[#3f3f46] transition-colors hover:bg-[#f4f4f5] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700"
+            >
+              <MailboxIcon name="settings" className="size-5" />
+            </button>
             <form action={signOutFromApp}>
               <button
                 type="submit"
@@ -1062,7 +1377,7 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
             <button
               type="button"
               onClick={() =>
-                setComposerSession({
+                openComposer({
                   mode: "compose",
                   to: "",
                   cc: "",
@@ -1326,7 +1641,7 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
                   onTriage={runAiTriage}
                   onApplyGmailQuery={applyGmailQuery}
                   preferences={aiPreferences}
-                  onPreferencesChange={setAiPreferences}
+                  onPreferencesChange={changeAiPreferences}
                 />
               </div>
             </details>
@@ -1342,7 +1657,14 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
                       : "border-emerald-200 bg-emerald-50 text-emerald-900"
                 }`}
               >
-                {notice.message}
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <span>{notice.message}</span>
+                  {pendingSend ? (
+                    <button type="button" onClick={() => void cancelPendingSend()} className="inline-flex min-h-11 shrink-0 cursor-pointer items-center justify-center rounded-xl border border-blue-300 bg-white px-4 text-sm font-bold text-blue-900 transition-colors hover:bg-blue-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-900">
+                      {pendingSend.undoUntil ? "Annuler l’envoi" : "Annuler la programmation"}
+                    </button>
+                  ) : null}
+                </div>
               </div>
             ) : null}
 
@@ -1422,18 +1744,46 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
                   <div className="grid min-h-[660px] xl:grid-cols-[minmax(440px,560px)_minmax(0,1fr)]">
                     <div className="max-h-[660px] overflow-y-auto border-b border-[#e4e4e7] xl:max-h-[820px] xl:border-b-0 xl:border-r">
                       <div className="sticky top-0 z-10 flex min-h-11 items-center justify-between gap-3 border-b border-[#e4e4e7] bg-white/95 px-3 backdrop-blur-sm">
-                        <p className="text-xs font-semibold text-[#3f3f46]">
-                          {data.messages.length} messages · page {pageIndex + 1}
-                        </p>
-                        <p className="text-xs text-[#71717a]">
-                          {new Date(data.syncedAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
-                        </p>
+                        <div className="flex min-w-0 items-center gap-2">
+                          <label className="flex size-11 shrink-0 cursor-pointer items-center justify-center" title="Tout sélectionner">
+                            <input
+                              type="checkbox"
+                              checked={selectedMessageIds.size === data.messages.length}
+                              ref={(element) => { if (element) element.indeterminate = selectedMessageIds.size > 0 && selectedMessageIds.size < data.messages.length; }}
+                              onChange={(event) => setSelectedMessageIds(event.target.checked ? new Set(data.messages.map((message) => message.id)) : new Set())}
+                              aria-label="Tout sélectionner sur cette page"
+                              className="size-4 accent-blue-700"
+                            />
+                          </label>
+                          {selectedMessageIds.size ? (
+                            <div className="flex max-w-[calc(100vw-5rem)] items-center gap-1 overflow-x-auto" aria-label="Actions groupées">
+                              <span className="mr-1 text-xs font-bold text-blue-800">{selectedMessageIds.size}</span>
+                              <button type="button" onClick={() => void performBulkAction("archive")} disabled={actionPending} aria-label="Archiver la sélection" title="Archiver" className="flex size-11 cursor-pointer items-center justify-center rounded-lg text-[#52525b] hover:bg-[#f4f4f5] focus-visible:outline-2 focus-visible:outline-blue-700 disabled:opacity-50"><MailboxIcon name="archive" className="size-4" /></button>
+                              <button type="button" onClick={() => void performBulkAction("mark_read")} disabled={actionPending} aria-label="Marquer la sélection comme lue" title="Marquer lu" className="flex size-11 cursor-pointer items-center justify-center rounded-lg text-[#52525b] hover:bg-[#f4f4f5] focus-visible:outline-2 focus-visible:outline-blue-700 disabled:opacity-50"><MailboxIcon name="check" className="size-4" /></button>
+                              <button type="button" onClick={() => void performBulkAction("star")} disabled={actionPending} aria-label="Ajouter la sélection aux favoris" title="Favoris" className="flex size-11 cursor-pointer items-center justify-center rounded-lg text-[#52525b] hover:bg-[#f4f4f5] focus-visible:outline-2 focus-visible:outline-blue-700 disabled:opacity-50"><MailboxIcon name="star" className="size-4" /></button>
+                              <button type="button" onClick={() => openReminder("snooze", [...selectedMessageIds])} disabled={actionPending} aria-label="Snooze la sélection" title="Snooze" className="flex size-11 cursor-pointer items-center justify-center rounded-lg text-[#52525b] hover:bg-[#f4f4f5] focus-visible:outline-2 focus-visible:outline-blue-700 disabled:opacity-50"><MailboxIcon name="clock" className="size-4" /></button>
+                              <button type="button" onClick={() => void performBulkAction("trash")} disabled={actionPending} aria-label="Mettre la sélection à la corbeille" title="Corbeille" className="flex size-11 cursor-pointer items-center justify-center rounded-lg text-red-700 hover:bg-red-50 focus-visible:outline-2 focus-visible:outline-red-800 disabled:opacity-50"><MailboxIcon name="trash" className="size-4" /></button>
+                            </div>
+                          ) : (
+                            <p className="truncate text-xs font-semibold text-[#3f3f46]">{data.messages.length} messages · page {pageIndex + 1}</p>
+                          )}
+                        </div>
+                        <p className="hidden text-xs text-[#71717a] sm:block">{new Date(data.syncedAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</p>
                       </div>
                       {data.messages.map((message) => (
                         <MessageRow
                           key={message.id}
                           message={message}
-                          selected={message.id === selectedMessage?.id}
+                          active={message.id === selectedMessage?.id}
+                          checked={selectedMessageIds.has(message.id)}
+                          onToggleChecked={() => {
+                            setSelectedMessageIds((current) => {
+                              const next = new Set(current);
+                              if (next.has(message.id)) next.delete(message.id);
+                              else next.add(message.id);
+                              return next;
+                            });
+                          }}
                           onSelect={() => {
                             setSelectedMessageId(message.id);
                             setDetailState({ status: "idle" });
@@ -1449,8 +1799,10 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
                         currentView={currentView}
                         labels={data.labels}
                         actionPending={actionPending}
-                        onCompose={setComposerSession}
+                        onCompose={openComposer}
                         onAction={(action, labelId) => void performAction(action, labelId)}
+                        onReminder={openReminder}
+                        onEditDraft={(message) => void editGmailDraft(message)}
                         onRefresh={refreshInbox}
                       />
                     </div>
@@ -1479,8 +1831,65 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
           session={composerSession}
           writingStyle={aiPreferences.writingStyle}
           onClose={() => setComposerSession(null)}
+          onSaveDraft={saveDraft}
           onSend={sendMessage}
+          templates={mailSettings.templates}
         />
+      ) : null}
+
+      {showSettings ? (
+        <MailSettingsPanel
+          open
+          settings={mailSettings}
+          labels={data?.labels ?? []}
+          onClose={() => setShowSettings(false)}
+          onChange={changeMailSettings}
+        />
+      ) : null}
+
+      {showNotifications ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/45 p-0 sm:items-center sm:p-6">
+          <section role="dialog" aria-modal="true" aria-labelledby="notifications-title" className="flex max-h-[80dvh] w-full flex-col bg-white sm:max-w-lg sm:rounded-2xl sm:border sm:border-[#d4d4d8]">
+            <header className="flex min-h-16 items-center justify-between border-b border-[#e4e4e7] px-4">
+              <div><p className="text-xs font-semibold uppercase tracking-[0.1em] text-blue-700">Suivi important</p><h2 id="notifications-title" className="font-semibold">Notifications</h2></div>
+              <button type="button" onClick={() => setShowNotifications(false)} aria-label="Fermer les notifications" className="flex size-11 cursor-pointer items-center justify-center rounded-xl text-[#52525b] hover:bg-[#f4f4f5] focus-visible:outline-2 focus-visible:outline-blue-700"><MailboxIcon name="close" /></button>
+            </header>
+            <div className="min-h-0 flex-1 overflow-y-auto p-3">
+              {notifications.length ? (
+                <ul className="grid gap-2">{notifications.map((item) => (
+                  <li key={item.id}>
+                    <article className="min-h-16 w-full rounded-xl border border-[#e4e4e7] bg-white px-3 py-3 text-left">
+                      <span className="block text-sm font-semibold text-[#18181b]">{item.title}</span>
+                      <span className="mt-1 block text-sm text-[#52525b]">{item.body}</span>
+                      <time className="mt-1 block text-xs text-[#71717a]">{new Date(item.createdAt).toLocaleString("fr-FR")}</time>
+                    </article>
+                  </li>
+                ))}</ul>
+              ) : <div className="flex min-h-48 flex-col items-center justify-center text-center"><MailboxIcon name="bell" className="size-7 text-[#71717a]" /><p className="mt-3 text-sm font-semibold">Aucune notification importante</p></div>}
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {reminderDialog ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/45 p-0 sm:items-center sm:p-6">
+          <form onSubmit={submitReminder} role="dialog" aria-modal="true" aria-labelledby="reminder-title" className="w-full bg-white p-5 sm:max-w-md sm:rounded-2xl sm:border sm:border-[#d4d4d8]">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.1em] text-blue-700">{reminderDialog.messageIds.length} message(s)</p>
+                <h2 id="reminder-title" className="mt-1 text-lg font-semibold text-[#18181b]">{reminderDialog.kind === "snooze" ? "Snooze jusqu’à…" : "Créer un rappel"}</h2>
+              </div>
+              <button type="button" onClick={() => setReminderDialog(null)} aria-label="Fermer" className="flex size-11 cursor-pointer items-center justify-center rounded-xl text-[#52525b] hover:bg-[#f4f4f5] focus-visible:outline-2 focus-visible:outline-blue-700"><MailboxIcon name="close" /></button>
+            </div>
+            <label htmlFor="reminder-date" className="mt-5 block text-sm font-semibold text-[#3f3f46]">Date et heure</label>
+            <input id="reminder-date" type="datetime-local" required min={minimumReminderDate} value={reminderDate} onChange={(event) => setReminderDate(event.target.value)} className="mt-2 min-h-12 w-full rounded-xl border border-[#d4d4d8] px-3 text-base outline-none focus:border-blue-700 focus:ring-1 focus:ring-blue-700" />
+            <p className="mt-3 text-sm leading-6 text-[#52525b]">{reminderDialog.kind === "snooze" ? "Le message quitte la réception puis revient automatiquement à cette date." : "Le message reste à sa place et une notification sera créée à cette date."}</p>
+            <div className="mt-5 grid grid-cols-2 gap-2">
+              <button type="button" onClick={() => setReminderDialog(null)} className="min-h-11 cursor-pointer rounded-xl border border-[#d4d4d8] bg-white px-4 text-sm font-semibold hover:bg-[#f4f4f5] focus-visible:outline-2 focus-visible:outline-blue-700">Annuler</button>
+              <button type="submit" disabled={reminderPending || !reminderDate} className="min-h-11 cursor-pointer rounded-xl bg-blue-700 px-4 text-sm font-semibold text-white hover:bg-blue-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-900 disabled:cursor-wait disabled:opacity-60">{reminderPending ? "Enregistrement…" : "Confirmer"}</button>
+            </div>
+          </form>
+        </div>
       ) : null}
     </div>
   );

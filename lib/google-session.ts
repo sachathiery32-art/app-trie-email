@@ -3,6 +3,7 @@ import { getToken } from "next-auth/jwt";
 
 import { unstable_update } from "@/auth";
 import { refreshGoogleAccessToken } from "@/lib/google-oauth";
+import { persistGoogleRefreshToken } from "@/lib/mail-store";
 
 export type GoogleSessionErrorCode =
   | "UNAUTHENTICATED"
@@ -53,7 +54,8 @@ async function getAllowedGoogleToken(request: NextRequest) {
 
 /** Vérifie la session et la liste blanche sans demander un accès à Gmail. */
 export async function requireAllowedGoogleUser(request: NextRequest) {
-  await getAllowedGoogleToken(request);
+  const token = await getAllowedGoogleToken(request);
+  return token.email as string;
 }
 
 /**
@@ -70,6 +72,11 @@ export async function getGoogleAccessToken(request: NextRequest) {
     Date.now() < (expiresAt - 60) * 1000;
 
   if (hasValidAccessToken) {
+    if (token.googleRefreshToken) {
+      void persistGoogleRefreshToken(token.email as string, token.googleRefreshToken).catch(
+        (error) => console.error("Persistance OAuth différée impossible.", error),
+      );
+    }
     return token.googleAccessToken as string;
   }
 
@@ -82,6 +89,11 @@ export async function getGoogleAccessToken(request: NextRequest) {
     const refreshedTokens = await refreshGoogleAccessToken(
       token.googleRefreshToken,
     );
+
+    await persistGoogleRefreshToken(
+      token.email as string,
+      refreshedTokens.refreshToken ?? token.googleRefreshToken,
+    ).catch((error) => console.error("Persistance OAuth différée impossible.", error));
 
     await unstable_update({
       _googleTokenUpdate: {

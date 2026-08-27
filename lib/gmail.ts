@@ -103,7 +103,7 @@ export class GmailApiError extends Error {
 async function gmailRequest<T>(
   url: URL,
   accessToken: string,
-  options?: { method?: "POST"; body?: unknown },
+  options?: { method?: "POST" | "PUT" | "DELETE"; body?: unknown },
 ): Promise<T> {
   const hasBody = options?.body !== undefined;
   const response = await fetch(url, {
@@ -123,6 +123,34 @@ async function gmailRequest<T>(
 
   return (await response.json()) as T;
 }
+
+export type GmailDraftResult = {
+  draftId: string;
+  messageId: string;
+  threadId: string;
+};
+
+type GmailDraftApiResponse = {
+  id?: string;
+  message?: GmailSendApiResponse;
+};
+
+type GmailDraftListResponse = {
+  drafts?: GmailDraftApiResponse[];
+  nextPageToken?: string;
+};
+
+type GmailWatchResponse = { historyId?: string; expiration?: string };
+
+export type GmailHistoryMessage = { id: string; threadId?: string };
+
+type GmailHistoryResponse = {
+  history?: Array<{
+    messagesAdded?: Array<{ message?: GmailRawMessageResponse }>;
+  }>;
+  historyId?: string;
+  nextPageToken?: string;
+};
 
 function headerValue(headers: GmailHeader[] | undefined, name: string) {
   return (
@@ -662,30 +690,21 @@ function createRawEmail(
   return Buffer.from(mimeMessage, "utf8").toString("base64url");
 }
 
-/** Envoie un message, une réponse ou un transfert depuis Gmail. */
-export async function sendGmailMessage(
+async function prepareGmailDelivery(
   accessToken: string,
   message: GmailSendRequest,
-  attachments: GmailOutgoingAttachment[] = [],
+  attachments: GmailOutgoingAttachment[],
 ) {
   const profileUrl = new URL(`${GMAIL_API_BASE}/users/me/profile`);
-  const profile = await gmailRequest<GmailProfileResponse>(
-    profileUrl,
-    accessToken,
-  );
-
-  if (!profile.emailAddress) {
-    throw new GmailApiError(502);
-  }
+  const profile = await gmailRequest<GmailProfileResponse>(profileUrl, accessToken);
+  if (!profile.emailAddress) throw new GmailApiError(502);
 
   const isReply = message.mode === "reply" || message.mode === "replyAll";
   const sourceMessage =
     isReply && message.sourceMessageId
       ? await getGmailMessage(accessToken, message.sourceMessageId)
       : null;
-  if (isReply && !sourceMessage) {
-    throw new GmailApiError(400);
-  }
+  if (isReply && !sourceMessage) throw new GmailApiError(400);
 
   const sourceMessageIdHeader = sourceMessage
     ? sanitizeMessageReferences(sourceMessage.messageIdHeader)
@@ -705,6 +724,27 @@ export async function sendGmailMessage(
       }
     : message;
 
+  return {
+    raw: createRawEmail(
+      profile.emailAddress,
+      messageForDelivery,
+      attachments,
+      sourceMessage
+        ? { inReplyTo: sourceMessageIdHeader, references: referenceChain }
+        : undefined,
+    ),
+    threadId: sourceMessage?.threadId,
+  };
+}
+
+/** Envoie un message, une réponse ou un transfert depuis Gmail. */
+export async function sendGmailMessage(
+  accessToken: string,
+  message: GmailSendRequest,
+  attachments: GmailOutgoingAttachment[] = [],
+) {
+  const prepared = await prepareGmailDelivery(accessToken, message, attachments);
+
   const sendUrl = new URL(`${GMAIL_API_BASE}/users/me/messages/send`);
   const sentMessage = await gmailRequest<GmailSendApiResponse>(
     sendUrl,
@@ -712,18 +752,8 @@ export async function sendGmailMessage(
     {
       method: "POST",
       body: {
-        raw: createRawEmail(
-          profile.emailAddress,
-          messageForDelivery,
-          attachments,
-          sourceMessage
-            ? {
-                inReplyTo: sourceMessageIdHeader,
-                references: referenceChain,
-              }
-            : undefined,
-        ),
-        ...(sourceMessage ? { threadId: sourceMessage.threadId } : {}),
+        raw: prepared.raw,
+        ...(prepared.threadId ? { threadId: prepared.threadId } : {}),
       },
     },
   );
@@ -736,6 +766,134 @@ export async function sendGmailMessage(
     messageId: sentMessage.id,
     threadId: sentMessage.threadId ?? sentMessage.id,
   };
+}
+
+/** Crée ou remplace un véritable brouillon Gmail. */
+export async function saveGmailDraft(
+  accessToken: string,
+  message: GmailSendRequest,
+  attachments: GmailOutgoingAttachment[] = [],
+  draftId?: string,
+): Promise<GmailDraftResult> {
+  const prepared = await prepareGmailDelivery(accessToken, message, attachments);
+  const url = new URL(
+    draftId
+      ? `${GMAIL_API_BASE}/users/me/drafts/${encodeURIComponent(draftId)}`
+      : `${GMAIL_API_BASE}/users/me/drafts`,
+  );
+  const draft = await gmailRequest<GmailDraftApiResponse>(url, accessToken, {
+    method: draftId ? "PUT" : "POST",
+    body: {
+      message: {
+        raw: prepared.raw,
+        ...(prepared.threadId ? { threadId: prepared.threadId } : {}),
+      },
+    },
+  });
+  if (!draft.id || !draft.message?.id) throw new GmailApiError(502);
+  return {
+    draftId: draft.id,
+    messageId: draft.message.id,
+    threadId: draft.message.threadId ?? draft.message.id,
+  };
+}
+
+export async function sendGmailDraft(accessToken: string, draftId: string) {
+  const url = new URL(`${GMAIL_API_BASE}/users/me/drafts/send`);
+  const sent = await gmailRequest<GmailSendApiResponse>(url, accessToken, {
+    method: "POST",
+    body: { id: draftId },
+  });
+  if (!sent.id) throw new GmailApiError(502);
+  return { messageId: sent.id, threadId: sent.threadId ?? sent.id };
+}
+
+export async function findGmailDraftId(accessToken: string, messageId: string) {
+  let pageToken: string | undefined;
+  for (let page = 0; page < 5; page += 1) {
+    const url = new URL(`${GMAIL_API_BASE}/users/me/drafts`);
+    url.searchParams.set("maxResults", "100");
+    if (pageToken) url.searchParams.set("pageToken", pageToken);
+    const result = await gmailRequest<GmailDraftListResponse>(url, accessToken);
+    const draft = result.drafts?.find((item) => item.message?.id === messageId);
+    if (draft?.id) return draft.id;
+    pageToken = result.nextPageToken;
+    if (!pageToken) break;
+  }
+  return null;
+}
+
+export async function modifyGmailMessages(
+  accessToken: string,
+  messageIds: string[],
+  action: "mark_read" | "mark_unread" | "star" | "unstar" | "archive" | "trash",
+) {
+  if (action === "trash") {
+    for (let index = 0; index < messageIds.length; index += 5) {
+      await Promise.all(
+        messageIds.slice(index, index + 5).map((id) =>
+          modifyGmailMessage(accessToken, id, "trash"),
+        ),
+      );
+    }
+    return;
+  }
+  const changes = {
+    mark_read: { removeLabelIds: ["UNREAD"] },
+    mark_unread: { addLabelIds: ["UNREAD"] },
+    star: { addLabelIds: ["STARRED"] },
+    unstar: { removeLabelIds: ["STARRED"] },
+    archive: { removeLabelIds: ["INBOX"] },
+  } as const;
+  const url = new URL(`${GMAIL_API_BASE}/users/me/messages/batchModify`);
+  await gmailRequest<Record<string, never>>(url, accessToken, {
+    method: "POST",
+    body: { ids: messageIds, ...changes[action] },
+  });
+}
+
+export async function watchGmailInbox(accessToken: string, topicName: string) {
+  const url = new URL(`${GMAIL_API_BASE}/users/me/watch`);
+  const result = await gmailRequest<GmailWatchResponse>(url, accessToken, {
+    method: "POST",
+    body: {
+      topicName,
+      labelIds: ["INBOX"],
+      labelFilterBehavior: "INCLUDE",
+    },
+  });
+  if (!result.historyId || !result.expiration) throw new GmailApiError(502);
+  return {
+    historyId: result.historyId,
+    expiration: new Date(Number(result.expiration)),
+  };
+}
+
+export async function listGmailHistory(
+  accessToken: string,
+  startHistoryId: string,
+) {
+  const messages = new Map<string, GmailHistoryMessage>();
+  let pageToken: string | undefined;
+  let latestHistoryId = startHistoryId;
+  do {
+    const url = new URL(`${GMAIL_API_BASE}/users/me/history`);
+    url.searchParams.set("startHistoryId", startHistoryId);
+    url.searchParams.set("historyTypes", "messageAdded");
+    url.searchParams.set("labelId", "INBOX");
+    url.searchParams.set("maxResults", "100");
+    if (pageToken) url.searchParams.set("pageToken", pageToken);
+    const result = await gmailRequest<GmailHistoryResponse>(url, accessToken);
+    latestHistoryId = result.historyId ?? latestHistoryId;
+    for (const history of result.history ?? []) {
+      for (const added of history.messagesAdded ?? []) {
+        const item = added.message;
+        if (item?.id) messages.set(item.id, { id: item.id, threadId: item.threadId });
+      }
+    }
+    pageToken = result.nextPageToken;
+  } while (pageToken);
+  return { messages: [...messages.values()], historyId: latestHistoryId };
 }
 
 /** Applique une action Gmail en utilisant les libellés système officiels. */

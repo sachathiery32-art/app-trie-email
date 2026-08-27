@@ -1,93 +1,42 @@
 # Email Organizer AI
 
-Pilote personnel de messagerie construit avec Next.js, Auth.js et Groq. La
-connexion Google est réelle, limitée à une adresse autorisée et permet de piloter
-la boîte Gmail depuis une interface secondaire.
+Client de messagerie professionnel construit avec Next.js, Auth.js, Gmail,
+PostgreSQL et Groq. L'interface reprend les repères essentiels de Gmail tout en
+ajoutant dossiers personnalisés, tri automatique, assistance IA et outils de
+suivi pour un usage d'entrepreneur.
 
 ## Fonctionnalités
 
-- connexion Google OAuth avec liste blanche côté serveur ;
-- conservation chiffrée des jetons OAuth dans un cookie `HttpOnly` ;
-- renouvellement automatique du jeton d'accès Google ;
-- pagination des dossiers Réception, Favoris, Envoyés, Brouillons, Archives,
-  Corbeille et Tous les messages ;
-- recherche utilisant la syntaxe Gmail ;
-- lecture du contenu complet et téléchargement des pièces jointes jusqu'à 3 Mo ;
-- nouveau message, réponse, réponse à tous et transfert rattaché au fil Gmail ;
-- ajout de dix pièces jointes maximum, pour 3 Mo au total ;
-- modification lu/non lu, favoris, archivage, corbeille, restauration et libellés ;
-- rédaction Groq d'un nouveau message ou d'une réponse réelle, puis correction,
-  réduction, développement et changement de ton du brouillon ;
-- analyse d'une conversation : résumé, catégorie, priorité, réponse attendue,
-  actions, échéances, risques et propositions de réponse ;
-- classement manuel ou automatique de 100 messages par page, avec reprise par
-  lots en cas de quota temporaire, par libellés Gmail `AI/Catégorie`,
-  `AI/Priorité` et `AI/Action` ;
-- création libre de dossiers et sous-dossiers Gmail depuis la barre latérale ;
-- classement automatique des nouveaux messages dans les dossiers personnalisés
-  dont les noms sont choisis par l'utilisateur ;
-- recherche en langage naturel avec réponse synthétique, sources visibles et
-  traduction automatique en requête Gmail ;
-- analyse des PDF contenant du texte et des fichiers TXT, CSV, JSON, XML, RTF,
-  Markdown ou journaux jusqu'à 3 Mo ;
-- mémorisation locale et facultative du style de rédaction et du choix de tri
-  automatique ;
-- synchronisation toutes les 60 secondes lorsque le site est ouvert, au retour
-  sur l'onglet et à chaque nouvelle visite ;
-- interface responsive et accessible au clavier.
+- connexion Google OAuth limitée à l'adresse autorisée côté serveur ;
+- navigation Gmail dense : réception, favoris, envoyés, brouillons, archives,
+  corbeille, tous les messages, dossiers et sous-dossiers personnalisés ;
+- recherche Gmail, lecture des fils, pièces jointes, réponses et transferts ;
+- brouillons Gmail réels, sauvegardés automatiquement et avant la fermeture ;
+- annulation d'envoi configurable et programmation d'un message ;
+- snooze, rappels, sélection multiple, tout sélectionner et actions groupées ;
+- suggestions Google Contacts, signatures et modèles réutilisables ;
+- préférences et règles de classement enregistrées dans PostgreSQL ;
+- synchronisation permanente par Gmail Pub/Sub avec reprise par `historyId` ;
+- notifications navigateur et centre de notifications pour les nouveaux
+  messages Gmail réellement importants ;
+- renouvellement automatique du `watch` Gmail et traitement périodique des
+  envois et rappels ;
+- rédaction, reformulation, analyse, recherche en langage naturel et classement
+  automatique avec Groq ;
+- interface responsive, accessible au clavier et pensée pour afficher beaucoup
+  de messages sans perdre les commandes principales.
 
-L'ancienne interface de démonstration et les routes Groq sont conservées dans le
-code pour les prochaines étapes, mais l'accueil utilise désormais Gmail réel.
+## Démarrage local
 
-## Architecture
+Prérequis : Node.js 20 ou plus récent et un client OAuth Google autorisé.
 
-- `app/api/classify` valide puis classe un email de démonstration avec Groq ;
-- `app/api/draft-reply` génère un brouillon de réponse à partir d'un email Gmail
-  autorisé ou fictif ;
-- `app/api/draft-message` génère un nouveau message à partir d'une consigne ;
-- `app/api/auth/[...nextauth]` reçoit les requêtes OAuth et le callback Google ;
-- `app/api/gmail/inbox` retourne une page d'une vue Gmail et ses libellés ;
-- `app/api/gmail/send` valide les destinataires, les fils et les pièces jointes ;
-- `app/api/gmail/messages/[messageId]/modify` applique les actions Gmail ;
-- `app/api/gmail/messages/[messageId]/attachments/[attachmentId]` transmet une
-  pièce jointe sans exposer le jeton Google ;
-- `app/api/gmail/ai/analyze` analyse une conversation complète ;
-- `app/api/gmail/ai/triage` classe un lot de dix messages maximum et peut créer
-  les libellés correspondants dans Gmail ;
-- `app/api/gmail/ai/search` convertit une question en requête Gmail puis produit
-  une réponse reliée à ses messages sources ;
-- `app/api/gmail/ai/rewrite` reformule un brouillon en conservant ses faits ;
-- `app/api/gmail/ai/attachment` extrait et analyse le texte d'un document joint ;
-- `auth.ts` centralise le fournisseur Google, la liste blanche et les jetons ;
-- `components/gmail-inbox.tsx` affiche la boîte Gmail réelle ;
-- `components/gmail-ai-command-center.tsx` regroupe recherche, tri et préférences IA ;
-- `components/gmail-ai-assistant.tsx` présente l'analyse d'une conversation ;
-- `components/gmail-attachment-card.tsx` télécharge et analyse les documents ;
-- `lib/google-oauth.ts` renouvelle le jeton d'accès sans exposer les secrets ;
-- `lib/google-session.ts` déchiffre et contrôle la session côté serveur ;
-- `lib/gmail.ts` centralise les appels et la normalisation Gmail ;
-- `lib/ai-config.ts` centralise le modèle, les limites et la règle de protection
-  contre les instructions malveillantes contenues dans un email ;
-- `lib/ai-labels.ts` centralise la création et l'application des libellés IA ;
-- `components/email-sorting-dashboard.tsx` conserve l'interface de démonstration ;
-- `components/email-composer.tsx` gère la rédaction, les brouillons et
-  l'assistance IA ;
-- `hooks/use-demo-mailbox.ts` charge et persiste la boîte fictive localement ;
-- `lib/demo-emails.ts` contient le jeu de données de démonstration ;
-- `lib/groq.ts` centralise l'unique client Groq côté serveur ;
-- `lib/ai-rate-limit.ts` limite les appels IA par adresse réseau ;
-- `types/ai.ts`, `types/email.ts` et `types/gmail.ts` définissent les contrats
-  TypeScript partagés.
+```bash
+npm install
+copy .env.example .env.local
+npm run dev
+```
 
-Les fonctions IA Gmail exigent toutes une session Google autorisée et appliquent
-une limitation légère du nombre de requêtes. Les sorties structurées sont validées
-avant toute utilisation. Un email ou une pièce jointe est toujours considéré comme
-une donnée non fiable : son texte ne peut pas donner d'instructions au modèle. Une
-production multi-instance devra remplacer la limite locale par un stockage partagé.
-
-## Installation
-
-Copier `.env.example` vers `.env.local`, puis renseigner :
+Renseigner au minimum :
 
 ```env
 GROQ_API_KEY=votre_cle_groq
@@ -97,39 +46,64 @@ AUTH_GOOGLE_SECRET=secret_client_google
 ALLOWED_GOOGLE_EMAIL=adresse_autorisee
 ```
 
-Puis lancer :
+Ouvrir [http://localhost:3000](http://localhost:3000). Sans PostgreSQL, la
+lecture, les brouillons Gmail et l'envoi immédiat restent disponibles ; les
+fonctions persistantes indiquent clairement que la base doit être configurée.
+
+## Configuration de production
+
+Copier toutes les variables de `.env.example` dans l'hébergeur, puis suivre
+[`docs/PRIORITY-ZERO-SETUP.md`](docs/PRIORITY-ZERO-SETUP.md) pour configurer :
+
+- PostgreSQL et le chiffrement du jeton Google ;
+- People API pour les contacts suggérés ;
+- Gmail Pub/Sub et le renouvellement du `watch` ;
+- les clés VAPID pour les notifications Web Push ;
+- la tâche périodique protégée par `CRON_SECRET`.
+
+Un workflow GitHub Actions optionnel appelle la tâche de fond toutes les cinq
+minutes lorsque les secrets `EMAIL_ORGANIZER_URL` et `CRON_SECRET` sont présents.
+
+## Architecture principale
+
+- `components/gmail-inbox.tsx` : boîte Gmail, navigation, sélection groupée,
+  rappels, notifications et orchestration de l'interface ;
+- `components/email-composer.tsx` : brouillons distants, contacts, modèles,
+  pièces jointes, confirmation et programmation ;
+- `components/mail-settings-panel.tsx` : préférences, signatures, modèles,
+  règles, Pub/Sub et notifications ;
+- `lib/gmail.ts` : appels Gmail, brouillons, lots, `watch` et historique ;
+- `lib/mail-store.ts` et `lib/database.ts` : persistance PostgreSQL ;
+- `lib/background-sync.ts` : règles automatiques, notifications, rappels,
+  envois programmés et renouvellement Gmail ;
+- `lib/secret-crypto.ts` : chiffrement AES-GCM des jetons OAuth au repos ;
+- `app/api/gmail/pubsub` : réception protégée des événements Google ;
+- `app/api/cron/priority-zero` : exécution authentifiée des tâches périodiques.
+
+Les messages complets restent chez Gmail. PostgreSQL ne conserve que les
+paramètres nécessaires au fonctionnement permanent, les curseurs de
+synchronisation et les tâches différées.
+
+## Qualité et sécurité
 
 ```bash
-npm install
-npm run dev
+npm run lint
+npm run build
+npm audit --omit=dev
 ```
 
-Ouvrir [http://localhost:3000](http://localhost:3000).
+Les routes Gmail exigent une session Google autorisée. Les secrets restent côté
+serveur, les sorties IA structurées sont validées et tout texte provenant d'un
+email ou d'une pièce jointe est traité comme une donnée non fiable.
 
-## Déploiement Vercel
+## Limites connues
 
-Ajouter les cinq variables précédentes dans les variables d'environnement
-Vercel. Elles restent sur le serveur et ne sont jamais incluses dans le
-JavaScript envoyé au navigateur.
+- la limite actuelle des pièces jointes est de 3 Mo par requête ;
+- l'analyse des PDF scannés ne fait pas d'OCR ;
+- l'ouverture au public exige encore la vérification OAuth Google, les pages
+  légales, une politique de conservation et un audit de sécurité externe ;
+- Gmail reste le fournisseur de transport : l'application est un client de
+  messagerie avancé, pas encore un serveur SMTP/IMAP indépendant.
 
-## Limites de cette version
-
-La version personnelle interroge toujours Gmail directement et ne conserve pas
-les emails dans une base de données. La synchronisation automatique fonctionne
-donc lorsque le site est ouvert ; à la prochaine visite, la boîte est rechargée
-depuis Gmail. Une synchronisation serveur permanente, même site fermé, exigera
-PostgreSQL, Google Cloud Pub/Sub et une tâche de renouvellement de `watch`.
-
-La limite de 3 Mo par requête/téléchargement vient de l'hébergement actuel, pas de
-Gmail. L'analyse documentaire ne fait pas d'OCR : une image ou un PDF scanné sans
-texte n'est donc pas analysé. Les préférences IA sont conservées uniquement dans
-le navigateur ; elles ne suivent pas l'utilisateur sur un autre appareil.
-
-Cette version personnelle ne crée pas encore de brouillons sur les serveurs Gmail
-et n'intègre ni Google Drive ni Google Agenda. Ces fonctions demanderaient des
-permissions OAuth supplémentaires. La synchronisation Pub/Sub, PostgreSQL,
-l'isolation multi-utilisateur, la vérification Google et les pages légales restent
-nécessaires uniquement pour transformer cette version personnelle en SaaS public.
-
-Le plan technique et les interventions nécessaires sont détaillés dans
+La trajectoire vers une messagerie multi-utilisateur est détaillée dans
 [`docs/PRODUCTION-ROADMAP.md`](docs/PRODUCTION-ROADMAP.md).

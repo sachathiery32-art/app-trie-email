@@ -2,9 +2,12 @@ import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
 
 import { refreshGoogleAccessToken } from "@/lib/google-oauth";
+import { persistGoogleRefreshToken } from "@/lib/mail-store";
 
 const GMAIL_MODIFY_SCOPE =
   "https://www.googleapis.com/auth/gmail.modify";
+const CONTACTS_READ_SCOPE =
+  "https://www.googleapis.com/auth/contacts.readonly";
 
 /**
  * Configuration centrale de l'authentification.
@@ -27,7 +30,7 @@ export const { handlers, auth, signIn, signOut, unstable_update } = NextAuth({
     Google({
       authorization: {
         params: {
-          scope: `openid email profile ${GMAIL_MODIFY_SCOPE}`,
+          scope: `openid email profile ${GMAIL_MODIFY_SCOPE} ${CONTACTS_READ_SCOPE}`,
           access_type: "offline",
           prompt: "consent",
         },
@@ -52,7 +55,15 @@ export const { handlers, auth, signIn, signOut, unstable_update } = NextAuth({
         return false;
       }
 
-      return profile?.email_verified === true && googleEmail === allowedEmail;
+      const authorized = profile?.email_verified === true && googleEmail === allowedEmail;
+      if (authorized && account.refresh_token) {
+        try {
+          await persistGoogleRefreshToken(googleEmail, account.refresh_token);
+        } catch (error) {
+          console.error("Le jeton Google n'a pas pu être conservé pour la synchronisation.", error);
+        }
+      }
+      return authorized;
     },
     async jwt({ token, account, trigger, session }) {
       if (account) {
