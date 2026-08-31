@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { deletePushSubscription, savePushSubscription } from "@/lib/mail-store";
-import { requireAllowedGoogleUser } from "@/lib/google-session";
+import { requireGoogleUser } from "@/lib/google-session";
 
 export const dynamic = "force-dynamic";
 
@@ -19,7 +19,7 @@ function validSubscription(value: unknown) {
 
 export async function POST(request: NextRequest) {
   try {
-    const email = await requireAllowedGoogleUser(request);
+    const email = await requireGoogleUser(request);
     const subscription = validSubscription(await request.json().catch(() => null));
     if (!subscription) return NextResponse.json({ success: false, error: "Abonnement push invalide." }, { status: 400 });
     await savePushSubscription(email, subscription);
@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
-    const email = await requireAllowedGoogleUser(request);
+    const email = await requireGoogleUser(request);
     const body = (await request.json().catch(() => null)) as { endpoint?: unknown } | null;
     if (typeof body?.endpoint !== "string") return NextResponse.json({ success: false, error: "Abonnement push invalide." }, { status: 400 });
     await deletePushSubscription(email, body.endpoint);

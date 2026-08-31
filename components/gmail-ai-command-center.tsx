@@ -205,7 +205,7 @@ export function GmailAiCommandCenter({
           {confirmTriage ? (
             <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3">
               <p className="text-sm leading-6 text-amber-950">
-                Le contenu des messages sera transmis à Groq, puis les libellés seront
+                Le contenu des messages sera transmis à xKiro, puis les libellés seront
                 réellement ajoutés dans Gmail.
               </p>
               <div className="mt-3 flex flex-wrap gap-2">
@@ -293,7 +293,7 @@ export function GmailAiCommandCenter({
               />
               <p className="mt-1 text-xs leading-5 text-blue-800">
                 Ces préférences restent dans ce navigateur. Les emails ne sont envoyés à
-                Groq que lors d’une fonction IA.
+                xKiro que lors d’une fonction IA.
               </p>
             </div>
           </div>

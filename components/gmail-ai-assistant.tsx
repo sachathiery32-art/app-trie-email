@@ -117,7 +117,7 @@ export function GmailAiAssistant({
               Analyse intelligente de la conversation
             </h3>
             <p className="mt-1 text-sm leading-6 text-[#6d5c28]">
-              Résumé, priorité, tâches, échéances et réponses proposées par Groq.
+              Résumé, priorité, tâches, échéances et réponses proposées par xKiro.
             </p>
           </div>
         </div>
@@ -132,13 +132,13 @@ export function GmailAiAssistant({
             ? "Analyse…"
             : state.status === "success"
               ? "Actualiser l'analyse"
-              : "Analyser avec Groq"}
+              : "Analyser avec xKiro"}
         </button>
       </div>
 
       {state.status === "idle" ? (
         <p className="mt-4 text-xs leading-5 text-[#6d5c28]">
-          En lançant l’analyse, le contenu de la conversation sera transmis à Groq. Aucun
+          En lançant l’analyse, le contenu de la conversation sera transmis à xKiro. Aucun
           libellé ne sera modifié sans une action distincte.
         </p>
       ) : null}

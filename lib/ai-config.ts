@@ -1,6 +1,6 @@
 import "server-only";
 
-export const GROQ_MODEL = "openai/gpt-oss-20b";
+export const AI_MODEL = "qwen/qwen3.8-max";
 
 export const AI_INPUT_LIMITS = {
   emailBodyCharacters: 16_000,

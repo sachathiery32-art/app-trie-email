@@ -24,7 +24,7 @@ function usesSecureCookie(request: NextRequest) {
   );
 }
 
-async function getAllowedGoogleToken(request: NextRequest) {
+async function getGoogleToken(request: NextRequest) {
   const secret = process.env.AUTH_SECRET;
 
   if (!secret) {
@@ -44,18 +44,20 @@ async function getAllowedGoogleToken(request: NextRequest) {
   const allowedEmail = process.env.ALLOWED_GOOGLE_EMAIL
     ?.trim()
     .toLocaleLowerCase("en-US");
-
-  if (!allowedEmail || token.email.toLocaleLowerCase("en-US") !== allowedEmail) {
+  if (
+    !allowedEmail ||
+    token.email.trim().toLocaleLowerCase("en-US") !== allowedEmail
+  ) {
     throw new GoogleSessionError("FORBIDDEN");
   }
 
   return token;
 }
 
-/** Vérifie la session et la liste blanche sans demander un accès à Gmail. */
-export async function requireAllowedGoogleUser(request: NextRequest) {
-  const token = await getAllowedGoogleToken(request);
-  return token.email as string;
+/** Vérifie la session et la liste blanche avant de retourner l'identité Google. */
+export async function requireGoogleUser(request: NextRequest) {
+  const token = await getGoogleToken(request);
+  return (token.email as string).trim().toLocaleLowerCase("en-US");
 }
 
 /**
@@ -63,7 +65,7 @@ export async function requireAllowedGoogleUser(request: NextRequest) {
  * Le refresh token n'est jamais ajouté à la réponse HTTP de l'application.
  */
 export async function getGoogleAccessToken(request: NextRequest) {
-  const token = await getAllowedGoogleToken(request);
+  const token = await getGoogleToken(request);
 
   const expiresAt = token.googleAccessTokenExpiresAt;
   const hasValidAccessToken =

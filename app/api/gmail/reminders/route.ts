@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { ensureGmailLabels, modifyGmailMessage } from "@/lib/gmail";
 import { gmailErrorResponse } from "@/lib/gmail-route";
-import { getGoogleAccessToken, requireAllowedGoogleUser } from "@/lib/google-session";
+import { getGoogleAccessToken, requireGoogleUser } from "@/lib/google-session";
 import { createReminder } from "@/lib/mail-store";
 
 export const dynamic = "force-dynamic";
@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
     }
     const [accessToken, email] = await Promise.all([
       getGoogleAccessToken(request),
-      requireAllowedGoogleUser(request),
+      requireGoogleUser(request),
     ]);
     let snoozeLabelId: string | undefined;
     if (kind === "snooze") {

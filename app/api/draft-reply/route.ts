@@ -1,12 +1,12 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { GROQ_MODEL } from "@/lib/ai-config";
+import { AI_MODEL } from "@/lib/ai-config";
 import { checkAiRateLimit } from "@/lib/ai-rate-limit";
 import { aiSessionError } from "@/lib/ai-session";
 import { findDemoEmail } from "@/lib/demo-emails";
 import { getGmailMessage } from "@/lib/gmail";
 import { getGoogleAccessToken } from "@/lib/google-session";
-import { groq } from "@/lib/groq";
+import { xkiro } from "@/lib/xkiro";
 import {
   REPLY_TONES,
   type DraftReplyRequest,
@@ -107,13 +107,13 @@ export async function POST(request: NextRequest) {
           return {
             sender: gmailMessage.senderEmail,
             subject: gmailMessage.subject,
-            // Limite les données transmises à Groq tout en gardant le contexte utile.
+            // Limite les données transmises à xKiro tout en gardant le contexte utile.
             body: gmailMessage.bodyText.slice(0, 12_000),
           };
         })();
 
-    const completion = await groq.chat.completions.create({
-      model: GROQ_MODEL,
+    const completion = await xkiro.chat.completions.create({
+      model: AI_MODEL,
       messages: [
         {
           role: "system",
@@ -162,7 +162,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json<DraftReplyResponse>(
         {
           success: false,
-          error: "Groq a retourné un brouillon inexploitable.",
+          error: "xKiro a retourné un brouillon inexploitable.",
         },
         { status: 502 },
       );
@@ -176,7 +176,7 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error("Échec de la génération du brouillon Groq :", error);
+    console.error("Échec de la génération du brouillon xKiro :", error);
 
     return NextResponse.json<DraftReplyResponse>(
       {

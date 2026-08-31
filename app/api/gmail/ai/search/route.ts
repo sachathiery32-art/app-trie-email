@@ -1,12 +1,12 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { AI_INPUT_LIMITS, GROQ_MODEL, UNTRUSTED_EMAIL_RULE } from "@/lib/ai-config";
+import { AI_INPUT_LIMITS, AI_MODEL, UNTRUSTED_EMAIL_RULE } from "@/lib/ai-config";
 import { aiRequestError } from "@/lib/ai-route";
 import { GmailApiError, searchGmailMessages } from "@/lib/gmail";
 import { gmailErrorResponse } from "@/lib/gmail-route";
 import { GoogleSessionError, getGoogleAccessToken } from "@/lib/google-session";
-import { groq } from "@/lib/groq";
-import { groqErrorResponse } from "@/lib/groq-route";
+import { xkiro } from "@/lib/xkiro";
+import { xkiroErrorResponse } from "@/lib/xkiro-route";
 import type { GmailAiSearchResponse } from "@/types/ai";
 
 export const dynamic = "force-dynamic";
@@ -54,8 +54,8 @@ export async function POST(request: NextRequest) {
 
   try {
     const accessToken = await getGoogleAccessToken(request);
-    const queryCompletion = await groq.chat.completions.create({
-      model: GROQ_MODEL,
+    const queryCompletion = await xkiro.chat.completions.create({
+      model: AI_MODEL,
       max_tokens: 900,
       reasoning_effort: "low",
       messages: [
@@ -115,8 +115,8 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const answerCompletion = await groq.chat.completions.create({
-      model: GROQ_MODEL,
+    const answerCompletion = await xkiro.chat.completions.create({
+      model: AI_MODEL,
       max_tokens: 1_800,
       reasoning_effort: "low",
       messages: [
@@ -151,7 +151,7 @@ export async function POST(request: NextRequest) {
       ? (JSON.parse(answerContent) as { answer?: unknown })
       : null;
     if (typeof answerObject?.answer !== "string" || !answerObject.answer.trim()) {
-      return json({ success: false, error: "Groq n'a pas produit de réponse exploitable." }, 502);
+      return json({ success: false, error: "xKiro n'a pas produit de réponse exploitable." }, 502);
     }
     return json({
       success: true,
@@ -166,6 +166,6 @@ export async function POST(request: NextRequest) {
     console.error("Échec de la recherche IA Gmail.", error);
     return error instanceof GmailApiError || error instanceof GoogleSessionError
       ? gmailErrorResponse(error)
-      : groqErrorResponse(error, "search");
+      : xkiroErrorResponse(error, "search");
   }
 }

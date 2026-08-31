@@ -1,8 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { GROQ_MODEL, UNTRUSTED_EMAIL_RULE } from "@/lib/ai-config";
+import { AI_MODEL, UNTRUSTED_EMAIL_RULE } from "@/lib/ai-config";
 import { aiRequestError } from "@/lib/ai-route";
-import { groq } from "@/lib/groq";
+import { xkiro } from "@/lib/xkiro";
 import {
   AI_REWRITE_ACTIONS,
   type GmailAiRewriteResponse,
@@ -50,8 +50,8 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const completion = await groq.chat.completions.create({
-      model: GROQ_MODEL,
+    const completion = await xkiro.chat.completions.create({
+      model: AI_MODEL,
       max_tokens: 2_000,
       messages: [
         {
@@ -103,7 +103,7 @@ export async function POST(request: NextRequest) {
       !result.body.trim() ||
       result.body.length > 20_000
     ) {
-      return json({ success: false, error: "Groq a retourné un brouillon invalide." }, 502);
+      return json({ success: false, error: "xKiro a retourné un brouillon invalide." }, 502);
     }
     return json({
       success: true,
@@ -114,7 +114,7 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error("Échec de l'amélioration du brouillon Groq.", error);
+    console.error("Échec de l'amélioration du brouillon xKiro.", error);
     return json({ success: false, error: "Le brouillon ne peut pas être amélioré pour le moment." }, 502);
   }
 }

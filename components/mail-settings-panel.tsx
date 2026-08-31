@@ -187,7 +187,7 @@ export function MailSettingsPanel({ open, settings, labels, onClose, onChange }:
               <textarea rows={4} maxLength={5_000} value={preferences.signature} onChange={(event) => setPreferences((current) => ({ ...current, signature: event.target.value }))} placeholder="Nom, fonction, téléphone…" className="mt-2 w-full rounded-xl border border-[#d4d4d8] bg-white px-3 py-3 text-base leading-6 outline-none focus:border-blue-700 focus:ring-1 focus:ring-blue-700" />
             </label>
             <label className="sm:col-span-2 block text-sm font-semibold text-[#3f3f46]">
-              Style de rédaction transmis à Groq
+              Style de rédaction transmis à xKiro
               <textarea rows={3} maxLength={500} value={preferences.writingStyle} onChange={(event) => setPreferences((current) => ({ ...current, writingStyle: event.target.value }))} className="mt-2 w-full rounded-xl border border-[#d4d4d8] bg-white px-3 py-3 text-base leading-6 outline-none focus:border-blue-700 focus:ring-1 focus:ring-blue-700" />
             </label>
             <div className="sm:col-span-2 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

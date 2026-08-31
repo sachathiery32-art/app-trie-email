@@ -13,8 +13,8 @@ const CONTACTS_READ_SCOPE =
  * Configuration centrale de l'authentification.
  *
  * Le client Google est lu depuis AUTH_GOOGLE_ID et AUTH_GOOGLE_SECRET.
- * La liste blanche limite volontairement cette version au seul compte renseigné
- * dans ALLOWED_GOOGLE_EMAIL.
+ * Une liste blanche serveur réserve cette version personnelle à l'adresse
+ * configurée dans ALLOWED_GOOGLE_EMAIL.
  */
 export const { handlers, auth, signIn, signOut, unstable_update } = NextAuth({
   trustHost: true,
@@ -32,7 +32,8 @@ export const { handlers, auth, signIn, signOut, unstable_update } = NextAuth({
         params: {
           scope: `openid email profile ${GMAIL_MODIFY_SCOPE} ${CONTACTS_READ_SCOPE}`,
           access_type: "offline",
-          prompt: "consent",
+          prompt: "consent select_account",
+          include_granted_scopes: "true",
         },
       },
     }),
@@ -43,20 +44,19 @@ export const { handlers, auth, signIn, signOut, unstable_update } = NextAuth({
         return false;
       }
 
-      const allowedEmail = process.env.ALLOWED_GOOGLE_EMAIL
-        ?.trim()
-        .toLocaleLowerCase("en-US");
       const googleEmail = profile?.email
         ?.trim()
         .toLocaleLowerCase("en-US");
+      const allowedEmail = process.env.ALLOWED_GOOGLE_EMAIL
+        ?.trim()
+        .toLocaleLowerCase("en-US");
 
-      // Une variable absente ferme l'accès au lieu de rendre le site public.
-      if (!allowedEmail || !googleEmail) {
-        return false;
-      }
-
-      const authorized = profile?.email_verified === true && googleEmail === allowedEmail;
-      if (authorized && account.refresh_token) {
+      const authorized =
+        profile?.email_verified === true &&
+        Boolean(googleEmail) &&
+        Boolean(allowedEmail) &&
+        googleEmail === allowedEmail;
+      if (authorized && googleEmail && account.refresh_token) {
         try {
           await persistGoogleRefreshToken(googleEmail, account.refresh_token);
         } catch (error) {
@@ -105,6 +105,14 @@ export const { handlers, auth, signIn, signOut, unstable_update } = NextAuth({
         token.googleRefreshToken =
           refreshedTokens.refreshToken ?? token.googleRefreshToken;
         token.error = undefined;
+        if (refreshedTokens.refreshToken && typeof token.email === "string") {
+          await persistGoogleRefreshToken(
+            token.email,
+            refreshedTokens.refreshToken,
+          ).catch((error) =>
+            console.error("Le jeton Google renouvelé n'a pas pu être conservé.", error),
+          );
+        }
       } catch {
         token.error = "RefreshTokenError";
       }

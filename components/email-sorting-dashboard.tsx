@@ -1078,9 +1078,9 @@ export function EmailSortingDashboard({ user }: { user: AuthenticatedUser }) {
                                   </h3>
                                   <p className="mt-1 text-sm leading-6 text-[#6d5c28]">
                                     {selectedAnalysis.status === "idle" &&
-                                      "Lancez Groq pour vérifier ou corriger la catégorie de cet email."}
+                                      "Lancez xKiro pour vérifier ou corriger la catégorie de cet email."}
                                     {selectedAnalysis.status === "loading" &&
-                                      "Groq analyse le contenu et recherche la catégorie la plus pertinente…"}
+                                      "xKiro analyse le contenu et recherche la catégorie la plus pertinente…"}
                                     {selectedAnalysis.status === "success" &&
                                       selectedAnalysis.data.reason}
                                     {selectedAnalysis.status === "error" &&

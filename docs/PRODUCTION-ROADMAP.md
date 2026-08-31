@@ -10,10 +10,10 @@ L'activation en production dépend encore des ressources du propriétaire
 (PostgreSQL, Google Cloud, secrets VAPID et tâche périodique). La procédure est
 détaillée dans [`PRIORITY-ZERO-SETUP.md`](PRIORITY-ZERO-SETUP.md).
 
-## Étape suivante : comptes et isolation SaaS
+## Étape future : comptes et isolation SaaS
 
-- remplacer la liste blanche unique par des comptes applicatifs ;
-- isoler toutes les données par utilisateur et organisation ;
+- remplacer la liste blanche personnelle par de vrais comptes applicatifs ;
+- isoler les jetons, préférences, règles, tâches et notifications par compte ;
 - ajouter révocation, export et suppression complète d'un compte ;
 - mettre en place journal d'audit, limitation distribuée et supervision ;
 - ajouter des tests d'intégration Gmail/PostgreSQL et un environnement de

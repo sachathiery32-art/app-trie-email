@@ -1,14 +1,14 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { startGmailWatch } from "@/lib/background-sync";
-import { getGoogleAccessToken, requireAllowedGoogleUser } from "@/lib/google-session";
+import { getGoogleAccessToken, requireGoogleUser } from "@/lib/google-session";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
   try {
     const [email, accessToken] = await Promise.all([
-      requireAllowedGoogleUser(request),
+      requireGoogleUser(request),
       getGoogleAccessToken(request),
     ]);
     const watch = await startGmailWatch(email, accessToken);

@@ -1,9 +1,11 @@
+import Link from "next/link";
+
 import { signInWithGoogle } from "@/app/actions/auth";
 import { MailboxIcon } from "@/components/mailbox-icon";
 
 const AUTH_ERROR_MESSAGES: Record<string, string> = {
   AccessDenied:
-    "Ce compte Google n'est pas autorisé. Utilisez uniquement le compte ajouté à la liste de test.",
+    "Google n'a pas autorisé cette connexion. Vérifiez l'adresse du compte et acceptez les permissions demandées.",
   Configuration:
     "La connexion Google n'est pas encore complètement configurée.",
   OAuthCallbackError:
@@ -21,7 +23,7 @@ export function GoogleSignIn({ error }: { error?: string }) {
     <main className="flex min-h-screen items-center justify-center bg-[#fafafa] px-4 py-10 text-[#09090b] sm:px-6">
       <section
         aria-labelledby="signin-title"
-        className="w-full max-w-lg rounded-3xl border border-[#e4e4e7] bg-white p-6 sm:p-10"
+        className="w-full max-w-2xl rounded-3xl border border-[#e4e4e7] bg-white p-6 sm:p-10"
       >
         <div className="flex size-12 items-center justify-center rounded-2xl bg-[#18181b] text-white">
           <MailboxIcon name="mail" className="size-6" />
@@ -37,8 +39,8 @@ export function GoogleSignIn({ error }: { error?: string }) {
           Connectez votre espace personnel.
         </h1>
         <p className="mt-4 max-w-md text-base leading-7 text-[#52525b]">
-          Continuez avec le compte Google autorisé pour ouvrir le tableau de
-          bord. Votre mot de passe Gmail n’est jamais transmis à l’application.
+          Continuez avec le compte Gmail personnel autorisé pour ouvrir le
+          tableau de bord. Votre mot de passe Gmail n’est jamais transmis à l’application.
         </p>
 
         {errorMessage ? (
@@ -61,16 +63,33 @@ export function GoogleSignIn({ error }: { error?: string }) {
         </form>
 
         <div className="mt-8 border-t border-[#e4e4e7] pt-6">
-          <div className="flex gap-3 text-sm leading-6 text-[#52525b]">
+          <section aria-labelledby="public-features-title">
+            <h2 id="public-features-title" className="font-semibold text-[#18181b]">
+              Organisez votre propre boîte Gmail
+            </h2>
+            <p className="mt-2 text-sm leading-6 text-[#52525b]">
+              Email Organizer AI affiche vos messages Gmail, facilite le classement par libellés,
+              les brouillons et les rappels, et propose une assistance IA pour résumer ou rédiger.
+              Chaque compte conserve un espace séparé.
+            </p>
+          </section>
+          <div className="mt-4 flex gap-3 text-sm leading-6 text-[#52525b]">
             <MailboxIcon
               name="check"
               className="mt-1 size-4 shrink-0 text-[#2563eb]"
             />
             <p>
-              L’accès est limité à une seule adresse grâce à une liste blanche
-              côté serveur.
+              L’accès est réservé à l’unique adresse Gmail configurée côté serveur.
             </p>
           </div>
+          <nav aria-label="Informations légales" className="mt-4 flex flex-wrap gap-x-4 gap-y-2 text-sm">
+            <Link href="/privacy" className="font-semibold text-blue-700 hover:underline">
+              Confidentialité
+            </Link>
+            <Link href="/terms" className="font-semibold text-blue-700 hover:underline">
+              Conditions d’utilisation
+            </Link>
+          </nav>
         </div>
       </section>
     </main>

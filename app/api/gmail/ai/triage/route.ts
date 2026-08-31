@@ -1,13 +1,13 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { GROQ_MODEL, UNTRUSTED_EMAIL_RULE } from "@/lib/ai-config";
+import { AI_MODEL, UNTRUSTED_EMAIL_RULE } from "@/lib/ai-config";
 import { applyAiLabelsBatch } from "@/lib/ai-labels";
 import { aiRequestError } from "@/lib/ai-route";
 import { GmailApiError, getGmailMessage, listGmailLabels } from "@/lib/gmail";
 import { gmailErrorResponse } from "@/lib/gmail-route";
 import { GoogleSessionError, getGoogleAccessToken } from "@/lib/google-session";
-import { groq } from "@/lib/groq";
-import { groqErrorResponse } from "@/lib/groq-route";
+import { xkiro } from "@/lib/xkiro";
+import { xkiroErrorResponse } from "@/lib/xkiro-route";
 import {
   AI_EMAIL_CATEGORIES,
   AI_EMAIL_PRIORITIES,
@@ -97,8 +97,8 @@ export async function POST(request: NextRequest) {
         )),
       );
     }
-    const completion = await groq.chat.completions.create({
-      model: GROQ_MODEL,
+    const completion = await xkiro.chat.completions.create({
+      model: AI_MODEL,
       max_tokens: 2_500,
       reasoning_effort: "low",
       messages: [
@@ -195,7 +195,7 @@ export async function POST(request: NextRequest) {
         rawItems.length
     ) {
       return json(
-        { success: false, error: "Groq a retourné un tri incomplet." },
+        { success: false, error: "xKiro a retourné un tri incomplet." },
         502,
       );
     }
@@ -225,9 +225,9 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error("Échec du tri Gmail avec Groq.", error);
+    console.error("Échec du tri Gmail avec xKiro.", error);
     return error instanceof GmailApiError || error instanceof GoogleSessionError
       ? gmailErrorResponse(error)
-      : groqErrorResponse(error, "triage");
+      : xkiroErrorResponse(error, "triage");
   }
 }

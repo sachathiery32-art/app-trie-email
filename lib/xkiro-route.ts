@@ -16,18 +16,18 @@ function retryAfter(error: unknown) {
   return headers?.get?.("retry-after") ?? "20";
 }
 
-/** Traduit une erreur Groq sans la présenter à tort comme une erreur Gmail. */
-export function groqErrorResponse(error: unknown, operation: "search" | "triage") {
+/** Traduit une erreur xKiro sans la présenter à tort comme une erreur Gmail. */
+export function xkiroErrorResponse(error: unknown, operation: "search" | "triage") {
   const status = apiStatus(error);
   const isRateLimit = status === 429;
   const isConfigurationError = status === 401 || status === 403;
   const message = isRateLimit
-    ? "Groq reçoit trop de données à la fois. Le traitement reprendra automatiquement après une courte pause."
+    ? "xKiro reçoit trop de données à la fois. Le traitement reprendra automatiquement après une courte pause."
     : isConfigurationError
-      ? "La connexion à Groq doit être vérifiée par l’administrateur."
+      ? "La connexion à xKiro doit être vérifiée par l’administrateur."
       : operation === "search"
         ? "L’assistant n’a pas pu analyser Gmail pour le moment. Réessayez dans quelques instants."
-        : "Groq n’a pas pu terminer ce lot de classement. Les autres lots ne sont pas modifiés.";
+        : "xKiro n’a pas pu terminer ce lot de classement. Les autres lots ne sont pas modifiés.";
 
   return NextResponse.json<ApiErrorResponse>(
     { success: false, error: message },

@@ -1,9 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { GROQ_MODEL } from "@/lib/ai-config";
+import { AI_MODEL } from "@/lib/ai-config";
 import { checkAiRateLimit } from "@/lib/ai-rate-limit";
 import { aiSessionError } from "@/lib/ai-session";
-import { groq } from "@/lib/groq";
+import { xkiro } from "@/lib/xkiro";
 import {
   REPLY_TONES,
   type DraftMessageRequest,
@@ -82,8 +82,8 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const completion = await groq.chat.completions.create({
-      model: GROQ_MODEL,
+    const completion = await xkiro.chat.completions.create({
+      model: AI_MODEL,
       messages: [
         {
           role: "system",
@@ -128,7 +128,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json<DraftMessageResponse>(
         {
           success: false,
-          error: "Groq a retourné un message inexploitable.",
+          error: "xKiro a retourné un message inexploitable.",
         },
         { status: 502 },
       );
@@ -142,7 +142,7 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error("Échec de la rédaction Groq :", error);
+    console.error("Échec de la rédaction xKiro :", error);
 
     return NextResponse.json<DraftMessageResponse>(
       {

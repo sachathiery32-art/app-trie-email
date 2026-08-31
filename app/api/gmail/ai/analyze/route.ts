@@ -1,11 +1,11 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { AI_INPUT_LIMITS, GROQ_MODEL, UNTRUSTED_EMAIL_RULE } from "@/lib/ai-config";
+import { AI_INPUT_LIMITS, AI_MODEL, UNTRUSTED_EMAIL_RULE } from "@/lib/ai-config";
 import { aiRequestError } from "@/lib/ai-route";
 import { getGmailMessage, getGmailThread } from "@/lib/gmail";
 import { gmailErrorResponse } from "@/lib/gmail-route";
 import { getGoogleAccessToken } from "@/lib/google-session";
-import { groq } from "@/lib/groq";
+import { xkiro } from "@/lib/xkiro";
 import {
   AI_EMAIL_CATEGORIES,
   AI_EMAIL_PRIORITIES,
@@ -94,8 +94,8 @@ export async function POST(request: NextRequest) {
       };
     });
 
-    const completion = await groq.chat.completions.create({
-      model: GROQ_MODEL,
+    const completion = await xkiro.chat.completions.create({
+      model: AI_MODEL,
       max_tokens: 2_000,
       messages: [
         {
@@ -173,7 +173,7 @@ export async function POST(request: NextRequest) {
     const analysis: unknown = content ? JSON.parse(content) : null;
     if (!validAnalysis(analysis)) {
       return json(
-        { success: false, error: "Groq a retourné une analyse incomplète." },
+        { success: false, error: "xKiro a retourné une analyse incomplète." },
         502,
       );
     }
@@ -182,7 +182,7 @@ export async function POST(request: NextRequest) {
       data: { ...analysis, model: completion.model },
     });
   } catch (error) {
-    console.error("Échec de l'analyse Gmail avec Groq.", error);
+    console.error("Échec de l'analyse Gmail avec xKiro.", error);
     return gmailErrorResponse(error);
   }
 }

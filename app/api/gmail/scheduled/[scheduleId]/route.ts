@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { finishScheduledMessage, cancelScheduledMessage, claimScheduledMessage } from "@/lib/mail-store";
 import { sendGmailDraft } from "@/lib/gmail";
-import { getGoogleAccessToken, requireAllowedGoogleUser } from "@/lib/google-session";
+import { getGoogleAccessToken, requireGoogleUser } from "@/lib/google-session";
 
 export const dynamic = "force-dynamic";
 const ID_PATTERN = /^[0-9a-f-]{36}$/i;
@@ -12,7 +12,7 @@ export async function DELETE(request: NextRequest, context: Context) {
   try {
     const { scheduleId } = await context.params;
     if (!ID_PATTERN.test(scheduleId)) return NextResponse.json({ success: false, error: "Envoi invalide." }, { status: 400 });
-    const email = await requireAllowedGoogleUser(request);
+    const email = await requireGoogleUser(request);
     const cancelled = await cancelScheduledMessage(email, scheduleId);
     if (!cancelled) return NextResponse.json({ success: false, error: "Cet envoi est déjà parti ou annulé." }, { status: 409 });
     return NextResponse.json({ success: true, data: { gmailDraftId: cancelled.gmail_draft_id } });
@@ -26,7 +26,7 @@ export async function POST(request: NextRequest, context: Context) {
   if (!ID_PATTERN.test(scheduleId)) return NextResponse.json({ success: false, error: "Envoi invalide." }, { status: 400 });
   let claimed = false;
   try {
-    const email = await requireAllowedGoogleUser(request);
+    const email = await requireGoogleUser(request);
     const scheduled = await claimScheduledMessage(email, scheduleId);
     if (!scheduled) return NextResponse.json({ success: true, data: { status: "pending" } });
     claimed = true;

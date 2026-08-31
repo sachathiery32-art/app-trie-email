@@ -1,11 +1,11 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { AI_INPUT_LIMITS, GROQ_MODEL, UNTRUSTED_EMAIL_RULE } from "@/lib/ai-config";
+import { AI_INPUT_LIMITS, AI_MODEL, UNTRUSTED_EMAIL_RULE } from "@/lib/ai-config";
 import { aiRequestError } from "@/lib/ai-route";
 import { downloadGmailAttachment } from "@/lib/gmail";
 import { gmailErrorResponse } from "@/lib/gmail-route";
 import { getGoogleAccessToken } from "@/lib/google-session";
-import { groq } from "@/lib/groq";
+import { xkiro } from "@/lib/xkiro";
 import type { GmailAttachmentAnalysisResponse } from "@/types/ai";
 
 export const dynamic = "force-dynamic";
@@ -94,8 +94,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const completion = await groq.chat.completions.create({
-      model: GROQ_MODEL,
+    const completion = await xkiro.chat.completions.create({
+      model: AI_MODEL,
       max_tokens: 1_800,
       messages: [
         {
@@ -158,7 +158,7 @@ export async function POST(request: NextRequest) {
           (result[key] as unknown[]).every((item) => typeof item === "string"),
       )
     ) {
-      return json({ success: false, error: "Groq a retourné une analyse incomplète." }, 502);
+      return json({ success: false, error: "xKiro a retourné une analyse incomplète." }, 502);
     }
     return json({
       success: true,

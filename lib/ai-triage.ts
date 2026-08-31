@@ -1,9 +1,9 @@
 import "server-only";
 
-import { GROQ_MODEL, UNTRUSTED_EMAIL_RULE } from "@/lib/ai-config";
+import { AI_MODEL, UNTRUSTED_EMAIL_RULE } from "@/lib/ai-config";
 import { applyAiLabelsBatch } from "@/lib/ai-labels";
 import { getGmailMessage, listGmailLabels } from "@/lib/gmail";
-import { groq } from "@/lib/groq";
+import { xkiro } from "@/lib/xkiro";
 import {
   AI_EMAIL_CATEGORIES,
   AI_EMAIL_PRIORITIES,
@@ -40,8 +40,8 @@ export async function triageGmailMessages(accessToken: string, messageIds: strin
     .slice(0, 25);
   const allowedFolders = new Set(customFolders);
   const messages = await Promise.all(ids.map((id) => getGmailMessage(accessToken, id)));
-  const completion = await groq.chat.completions.create({
-    model: GROQ_MODEL,
+  const completion = await xkiro.chat.completions.create({
+    model: AI_MODEL,
     max_tokens: 2_500,
     reasoning_effort: "low",
     messages: [
@@ -113,7 +113,7 @@ export async function triageGmailMessages(accessToken: string, messageIds: strin
     rawItems.length !== ids.length ||
     !rawItems.every((item) => isTriageItem(item, allowedFolders)) ||
     rawItems.some((item) => !allowedIds.has((item as TriageModelItem).messageId))
-  ) throw new Error("Groq a retourné un tri serveur incomplet.");
+  ) throw new Error("xKiro a retourné un tri serveur incomplet.");
   const items = rawItems as TriageModelItem[];
   const applied = await applyAiLabelsBatch(
     accessToken,

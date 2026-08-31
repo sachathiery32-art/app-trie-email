@@ -8,7 +8,7 @@ import {
 } from "@/lib/gmail";
 import { gmailErrorResponse } from "@/lib/gmail-route";
 import { getGoogleAccessToken } from "@/lib/google-session";
-import { requireAllowedGoogleUser } from "@/lib/google-session";
+import { requireGoogleUser } from "@/lib/google-session";
 import { getMailSettings, scheduleGmailDraft } from "@/lib/mail-store";
 import type {
   GmailSendRequest,
@@ -144,7 +144,7 @@ export async function POST(request: NextRequest) {
   try {
     const [accessToken, accountEmail] = await Promise.all([
       getGoogleAccessToken(request),
-      requireAllowedGoogleUser(request),
+      requireGoogleUser(request),
     ]);
     const parsedRequest = await parseSendRequest(request);
     const message = validateSendRequest(parsedRequest.body);

@@ -95,7 +95,7 @@ export async function processGmailHistory(email: string, announcedHistoryId: str
     try {
       await triageGmailMessages(accessToken, triageIds.slice(index, index + 10));
     } catch (error) {
-      console.error("Classement Groq en arrière-plan interrompu.", error);
+      console.error("Classement xKiro en arrière-plan interrompu.", error);
     }
   }
   await updateGmailHistoryId(email, history.historyId || announcedHistoryId);

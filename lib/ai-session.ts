@@ -2,17 +2,17 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import {
   GoogleSessionError,
-  requireAllowedGoogleUser,
+  requireGoogleUser,
 } from "@/lib/google-session";
 import type { ApiErrorResponse } from "@/types/api";
 
 /**
- * Ferme les routes Groq aux visiteurs anonymes et aux comptes qui ne figurent
- * pas dans la liste blanche, sans exposer les jetons Google au navigateur.
+ * Ferme les routes xKiro aux visiteurs anonymes et aux comptes absents de la
+ * liste blanche, sans exposer les jetons Google au navigateur.
  */
 export async function aiSessionError(request: NextRequest) {
   try {
-    await requireAllowedGoogleUser(request);
+    await requireGoogleUser(request);
     return null;
   } catch (error) {
     if (error instanceof GoogleSessionError) {
@@ -21,8 +21,8 @@ export async function aiSessionError(request: NextRequest) {
           success: false,
           error:
             error.code === "UNAUTHENTICATED"
-              ? "Connectez-vous avec le compte Google autorisé."
-              : "Cette session Google n'est pas autorisée.",
+              ? "Connectez-vous avec Google pour utiliser les fonctions IA."
+              : "Ce compte Google n'est pas autorisé.",
         },
         { status: error.code === "UNAUTHENTICATED" ? 401 : 403 },
       );

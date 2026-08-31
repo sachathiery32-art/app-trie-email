@@ -1,13 +1,13 @@
 # Email Organizer AI
 
 Client de messagerie professionnel construit avec Next.js, Auth.js, Gmail,
-PostgreSQL et Groq. L'interface reprend les repères essentiels de Gmail tout en
+PostgreSQL et xKiro. L'interface reprend les repères essentiels de Gmail tout en
 ajoutant dossiers personnalisés, tri automatique, assistance IA et outils de
 suivi pour un usage d'entrepreneur.
 
 ## Fonctionnalités
 
-- connexion Google OAuth limitée à l'adresse autorisée côté serveur ;
+- connexion Google OAuth réservée à une adresse Gmail définie côté serveur ;
 - navigation Gmail dense : réception, favoris, envoyés, brouillons, archives,
   corbeille, tous les messages, dossiers et sous-dossiers personnalisés ;
 - recherche Gmail, lecture des fils, pièces jointes, réponses et transferts ;
@@ -22,13 +22,13 @@ suivi pour un usage d'entrepreneur.
 - renouvellement automatique du `watch` Gmail et traitement périodique des
   envois et rappels ;
 - rédaction, reformulation, analyse, recherche en langage naturel et classement
-  automatique avec Groq ;
+  automatique avec Qwen3.8 Max via xKiro ;
 - interface responsive, accessible au clavier et pensée pour afficher beaucoup
   de messages sans perdre les commandes principales.
 
 ## Démarrage local
 
-Prérequis : Node.js 20 ou plus récent et un client OAuth Google autorisé.
+Prérequis : Node.js 20 ou plus récent et un client OAuth Google de type Web.
 
 ```bash
 npm install
@@ -39,11 +39,11 @@ npm run dev
 Renseigner au minimum :
 
 ```env
-GROQ_API_KEY=votre_cle_groq
+XKIRO_API_KEY=votre_cle_xkiro
 AUTH_SECRET=une_valeur_aleatoire_longue
 AUTH_GOOGLE_ID=id_client_google
 AUTH_GOOGLE_SECRET=secret_client_google
-ALLOWED_GOOGLE_EMAIL=adresse_autorisee
+ALLOWED_GOOGLE_EMAIL=adresse_gmail_autorisee
 ```
 
 Ouvrir [http://localhost:3000](http://localhost:3000). Sans PostgreSQL, la
@@ -60,6 +60,10 @@ Copier toutes les variables de `.env.example` dans l'hébergeur, puis suivre
 - Gmail Pub/Sub et le renouvellement du `watch` ;
 - les clés VAPID pour les notifications Web Push ;
 - la tâche périodique protégée par `CRON_SECRET`.
+
+Pour recréer entièrement le projet Google et configurer le compte personnel,
+suivre le guide détaillé
+[`docs/GOOGLE-CLOUD-OAUTH-SETUP.md`](docs/GOOGLE-CLOUD-OAUTH-SETUP.md).
 
 Un workflow GitHub Actions optionnel appelle la tâche de fond toutes les cinq
 minutes lorsque les secrets `EMAIL_ORGANIZER_URL` et `CRON_SECRET` sont présents.
@@ -92,9 +96,10 @@ npm run build
 npm audit --omit=dev
 ```
 
-Les routes Gmail exigent une session Google autorisée. Les secrets restent côté
-serveur, les sorties IA structurées sont validées et tout texte provenant d'un
-email ou d'une pièce jointe est traité comme une donnée non fiable.
+Les routes Gmail exigent une session Google valide correspondant à la liste
+blanche serveur. Les secrets restent côté serveur, les sorties IA structurées sont
+validées et tout texte provenant d'un email ou d'une pièce jointe est traité
+comme une donnée non fiable.
 
 ## Limites connues
 

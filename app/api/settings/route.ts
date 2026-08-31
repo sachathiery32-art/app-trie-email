@@ -9,7 +9,7 @@ import {
   getMailSettings,
   saveMailPreferences,
 } from "@/lib/mail-store";
-import { requireAllowedGoogleUser } from "@/lib/google-session";
+import { requireGoogleUser } from "@/lib/google-session";
 import type { MailPreferences, MailSettingsResponse } from "@/types/settings";
 
 export const dynamic = "force-dynamic";
@@ -57,7 +57,7 @@ function validPreferences(value: unknown): MailPreferences | null {
 
 export async function GET(request: NextRequest) {
   try {
-    const email = await requireAllowedGoogleUser(request);
+    const email = await requireGoogleUser(request);
     return json({ success: true, data: await getMailSettings(email) });
   } catch (error) {
     return settingsError(error);
@@ -66,7 +66,7 @@ export async function GET(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   try {
-    const email = await requireAllowedGoogleUser(request);
+    const email = await requireGoogleUser(request);
     const preferences = validPreferences(await request.json().catch(() => null));
     if (!preferences) {
       return json({ success: false, error: "Les préférences sont invalides." }, 400);
@@ -80,7 +80,7 @@ export async function PUT(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const email = await requireAllowedGoogleUser(request);
+    const email = await requireGoogleUser(request);
     const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
     if (!body || (body.kind !== "template" && body.kind !== "rule")) {
       return json({ success: false, error: "La création demandée est invalide." }, 400);
@@ -122,7 +122,7 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
-    const email = await requireAllowedGoogleUser(request);
+    const email = await requireGoogleUser(request);
     const kind = request.nextUrl.searchParams.get("kind");
     const id = request.nextUrl.searchParams.get("id") ?? "";
     if ((kind !== "template" && kind !== "rule") || !/^\d{1,20}$/.test(id)) {

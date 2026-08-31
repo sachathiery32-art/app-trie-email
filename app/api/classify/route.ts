@@ -1,10 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { GROQ_MODEL } from "@/lib/ai-config";
+import { AI_MODEL } from "@/lib/ai-config";
 import { checkAiRateLimit } from "@/lib/ai-rate-limit";
 import { aiSessionError } from "@/lib/ai-session";
 import { findDemoEmail } from "@/lib/demo-emails";
-import { groq } from "@/lib/groq";
+import { xkiro } from "@/lib/xkiro";
 import {
   EMAIL_CATEGORIES,
   type ClassifyEmailRequest,
@@ -45,7 +45,7 @@ function isEmailClassification(value: unknown): value is EmailClassification {
 
 /**
  * Classifie un email fourni par le client, sans dépendre de Gmail.
- * Le corps de la requête est validé avant tout appel payant à Groq.
+ * Le corps de la requête est validé avant tout appel payant à xKiro.
  */
 export async function POST(request: NextRequest) {
   const sessionError = await aiSessionError(request);
@@ -93,8 +93,8 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const completion = await groq.chat.completions.create({
-      model: GROQ_MODEL,
+    const completion = await xkiro.chat.completions.create({
+      model: AI_MODEL,
       messages: [
         {
           role: "system",
@@ -144,7 +144,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json<ClassifyEmailResponse>(
         {
           success: false,
-          error: "Groq a retourné une classification inexploitable.",
+          error: "xKiro a retourné une classification inexploitable.",
         },
         { status: 502 },
       );
@@ -159,7 +159,7 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     // Les détails techniques restent dans le terminal du serveur Next.js.
-    console.error("Échec de la classification Groq :", error);
+    console.error("Échec de la classification xKiro :", error);
 
     return NextResponse.json<ClassifyEmailResponse>(
       {

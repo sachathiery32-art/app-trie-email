@@ -1548,7 +1548,7 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
                 </nav>
               ) : (
                 <p className="mx-3 mt-2 rounded-xl bg-[#f4f4f5] p-3 text-xs leading-5 text-[#52525b]">
-                  Créez vos propres dossiers. Groq utilisera leurs noms pour classer les nouveaux emails.
+                  Créez vos propres dossiers. xKiro utilisera leurs noms pour classer les nouveaux emails.
                 </p>
               )}
             </div>

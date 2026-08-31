@@ -30,8 +30,10 @@ Dans le projet Google Cloud utilisé par Auth.js :
 
 1. activer **Gmail API** et **People API** ;
 2. conserver l'URI de rappel de production dans le client OAuth ;
-3. reconnecter le compte Gmail pour accepter la permission Contacts en lecture ;
-4. vérifier que `ALLOWED_GOOGLE_EMAIL` correspond exactement au compte autorisé.
+3. conserver une audience **Externe** avec l'adresse personnelle ajoutée comme
+   utilisateur test ;
+4. vérifier que `ALLOWED_GOOGLE_EMAIL` contient exactement cette adresse ;
+5. reconnecter ce compte Gmail pour accepter les permissions Gmail et Contacts.
 
 Les contacts servent uniquement aux suggestions de destinataires. L'application
 n'écrit pas dans le carnet d'adresses.
@@ -51,9 +53,10 @@ GMAIL_PUBSUB_VERIFICATION_TOKEN=un_jeton_long_et_aleatoire
 ```
 
 Depuis l'interface, ouvrir **Réglages**, puis activer la synchronisation. Le
-serveur crée le `watch` Gmail et mémorise son `historyId`. Chaque notification
-Pub/Sub récupère ensuite les changements, exécute les règles et signale les
-nouveaux messages importants. Le `watch` est renouvelé par la tâche périodique.
+serveur crée un `watch` pour la boîte autorisée et mémorise son `historyId`. Le
+webhook refuse toute autre adresse. Chaque notification Pub/Sub récupère ensuite
+les changements, exécute les règles et signale les nouveaux messages importants.
+Le `watch` est renouvelé par la tâche périodique.
 
 ## 4. Notifications Web Push
 

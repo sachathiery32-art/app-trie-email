@@ -24,11 +24,23 @@ export async function POST(request: NextRequest) {
       emailAddress?: unknown;
       historyId?: unknown;
     };
-    const email = typeof payload.emailAddress === "string" ? payload.emailAddress.toLocaleLowerCase("en-US") : "";
+    const email = typeof payload.emailAddress === "string"
+      ? payload.emailAddress.trim().toLocaleLowerCase("en-US")
+      : "";
     const historyId = typeof payload.historyId === "string" ? payload.historyId : "";
-    const allowed = process.env.ALLOWED_GOOGLE_EMAIL?.trim().toLocaleLowerCase("en-US");
-    if (!allowed || email !== allowed || !/^\d{1,30}$/.test(historyId)) {
+    if (
+      !email ||
+      email.length > 320 ||
+      !email.includes("@") ||
+      !/^\d{1,30}$/.test(historyId)
+    ) {
       return NextResponse.json({ success: false }, { status: 400 });
+    }
+    const allowedEmail = process.env.ALLOWED_GOOGLE_EMAIL
+      ?.trim()
+      .toLocaleLowerCase("en-US");
+    if (!allowedEmail || email !== allowedEmail) {
+      return NextResponse.json({ success: false }, { status: 403 });
     }
     const result = await processGmailHistory(email, historyId);
     return new NextResponse(null, { status: result.processed >= 0 ? 204 : 500 });

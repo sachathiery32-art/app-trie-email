@@ -631,13 +631,13 @@ export function EmailComposer({
                         className="font-semibold text-[#332a0d]"
                       >
                         {session.mode === "compose"
-                          ? "Assistant de rédaction Groq"
-                          : "Proposition de réponse Groq"}
+                          ? "Assistant de rédaction xKiro"
+                          : "Proposition de réponse xKiro"}
                       </h3>
                       <p className="mt-1 text-sm leading-6 text-[#6d5c28]">
                         {session.mode === "compose"
-                          ? "Décrivez le message souhaité : Groq préparera l’objet et le contenu."
-                          : "Décrivez l’objectif : Groq préparera un brouillon que vous pourrez modifier."}
+                          ? "Décrivez le message souhaité : xKiro préparera l’objet et le contenu."
+                          : "Décrivez l’objectif : xKiro préparera un brouillon que vous pourrez modifier."}
                       </p>
                     </div>
                   </div>
@@ -693,7 +693,7 @@ export function EmailComposer({
                         (session.mode === "compose"
                           ? "Indiquez ce que vous voulez communiquer, sans données sensibles."
                           : deliveryMode === "gmail"
-                            ? "Le contenu de cet email sera transmis à Groq pour préparer la réponse."
+                            ? "Le contenu de cet email sera transmis à xKiro pour préparer la réponse."
                             : "Le contenu utilisé est entièrement fictif.")}
                       {aiState.status === "loading" &&
                         "Génération du brouillon en cours…"}
@@ -711,7 +711,7 @@ export function EmailComposer({
                       {aiState.status === "loading"
                         ? "Génération…"
                         : session.mode === "compose"
-                          ? "Rédiger avec Groq"
+                          ? "Rédiger avec xKiro"
                           : "Générer la réponse"}
                     </button>
                   </div>
@@ -756,7 +756,7 @@ export function EmailComposer({
                         Améliorer le brouillon
                       </h3>
                       <p className="mt-1 text-sm leading-6 text-blue-900">
-                        Groq peut corriger ou reformuler ce texte sans changer les faits.
+                        xKiro peut corriger ou reformuler ce texte sans changer les faits.
                       </p>
                     </div>
                   </div>
