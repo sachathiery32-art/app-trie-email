@@ -2,11 +2,11 @@ import "server-only";
 
 import OpenAI from "openai";
 
-const apiKey = process.env.XKIRO_API_KEY;
+const apiKey = process.env.XKIRO_API_KEY?.trim();
 
 if (!apiKey) {
   throw new Error(
-    "La variable d'environnement XKIRO_API_KEY est manquante dans .env.local.",
+    "La variable d'environnement XKIRO_API_KEY est manquante côté serveur.",
   );
 }
 
@@ -19,4 +19,6 @@ if (!apiKey) {
 export const xkiro = new OpenAI({
   apiKey,
   baseURL: "https://api.xkiro.com/v1",
+  timeout: 120_000,
+  maxRetries: 2,
 });
