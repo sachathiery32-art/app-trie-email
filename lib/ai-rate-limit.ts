@@ -1,7 +1,7 @@
 import "server-only";
 
 const WINDOW_MS = 10 * 60 * 1_000;
-const MAX_REQUESTS_PER_WINDOW = 20;
+const MAX_REQUESTS_PER_WINDOW = 1_000;
 
 type RateLimitBucket = {
   count: number;
@@ -23,7 +23,8 @@ function getClientIdentifier(request: Request) {
 }
 
 /**
- * Limitation légère adaptée à la démonstration.
+ * Limitation très haute adaptée à l'usage personnel de l'application.
+ * Elle évite seulement qu'une boucle accidentelle déclenche un volume incontrôlé.
  * Une production multi-instance devra utiliser un stockage partagé comme Redis.
  */
 export function checkAiRateLimit(request: Request) {
