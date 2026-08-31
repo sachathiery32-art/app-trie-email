@@ -18,6 +18,7 @@ type Props = {
   triageProgress: { completed: number; total: number } | null;
   onTriage: (messageIds: string[]) => Promise<GmailAiTriageItem[]>;
   onApplyGmailQuery: (query: string) => void;
+  onSelectSearchResults: (messageIds: string[], query: string) => void;
   preferences: AiUserPreferences;
   onPreferencesChange: (preferences: AiUserPreferences) => void;
 };
@@ -28,6 +29,7 @@ export function GmailAiCommandCenter({
   triageProgress,
   onTriage,
   onApplyGmailQuery,
+  onSelectSearchResults,
   preferences,
   onPreferencesChange,
 }: Props) {
@@ -48,6 +50,9 @@ export function GmailAiCommandCenter({
       }
     | { status: "error"; message: string }
   >({ status: "idle" });
+  const [selectedSourceIds, setSelectedSourceIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [confirmTriage, setConfirmTriage] = useState(false);
   const [triageState, setTriageState] = useState<
     | { status: "idle" }
@@ -90,6 +95,9 @@ export function GmailAiCommandCenter({
         gmailQuery: result.data.gmailQuery,
         sources: result.data.sources,
       });
+      setSelectedSourceIds(
+        new Set(result.data.sources.map((source) => source.messageId)),
+      );
     } catch (error) {
       setSearchState({
         status: "error",
@@ -169,28 +177,110 @@ export function GmailAiCommandCenter({
         </p>
       ) : null}
       {searchState.status === "success" ? (
-        <div className="mt-4 rounded-xl border border-blue-200 bg-white p-4">
-          <p className="whitespace-pre-wrap text-sm leading-6 text-[#27272a]">
-            {searchState.answer}
-          </p>
+        <div aria-live="polite" className="mt-4 rounded-2xl border border-blue-200 bg-white p-4 sm:p-5">
+          <div className="rounded-xl bg-[#f8fafc] p-4">
+            <p className="text-xs font-bold uppercase tracking-[0.08em] text-blue-700">
+              Réponse de l’assistant
+            </p>
+            <p className="mt-2 max-w-3xl whitespace-pre-wrap text-base leading-7 text-[#18181b]">
+              {searchState.answer}
+            </p>
+          </div>
           {searchState.sources.length ? (
-            <ol className="mt-3 space-y-1 border-t border-[#e4e4e7] pt-3 text-xs leading-5 text-[#52525b]">
-              {searchState.sources.map((source, index) => (
-                <li key={source.messageId}>
-                  [{index + 1}] {source.sender} — {source.subject} ·{" "}
-                  {new Date(source.receivedAt).toLocaleDateString("fr-FR")}
-                </li>
-              ))}
-            </ol>
+            <div className="mt-4 border-t border-[#e4e4e7] pt-4">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="font-semibold text-[#18181b]">
+                    Emails trouvés ({searchState.sources.length})
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-[#52525b]">
+                    Cochez les emails que vous souhaitez retrouver et manipuler dans la liste.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setSelectedSourceIds((current) =>
+                      current.size === searchState.sources.length
+                        ? new Set()
+                        : new Set(searchState.sources.map((source) => source.messageId)),
+                    )
+                  }
+                  className="min-h-11 cursor-pointer self-start rounded-xl px-3 text-sm font-semibold text-blue-800 transition-colors hover:bg-blue-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-800"
+                >
+                  {selectedSourceIds.size === searchState.sources.length
+                    ? "Tout désélectionner"
+                    : "Tout sélectionner"}
+                </button>
+              </div>
+              <ol className="mt-3 grid gap-2 md:grid-cols-2">
+                {searchState.sources.map((source, index) => {
+                  const selected = selectedSourceIds.has(source.messageId);
+                  return (
+                    <li key={source.messageId}>
+                      <label
+                        className={`flex min-h-20 cursor-pointer items-start gap-3 rounded-xl border p-3 transition-colors duration-200 focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-blue-700 ${
+                          selected
+                            ? "border-blue-300 bg-blue-50"
+                            : "border-[#e4e4e7] bg-white hover:bg-[#f8fafc]"
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selected}
+                          onChange={() =>
+                            setSelectedSourceIds((current) => {
+                              const next = new Set(current);
+                              if (next.has(source.messageId)) next.delete(source.messageId);
+                              else next.add(source.messageId);
+                              return next;
+                            })
+                          }
+                          aria-label={`Sélectionner l’email ${source.subject}`}
+                          className="mt-1 size-4 shrink-0 accent-blue-700"
+                        />
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-xs font-bold text-blue-700">
+                            Source [{index + 1}]
+                          </span>
+                          <span className="mt-1 block truncate text-sm font-semibold text-[#18181b]">
+                            {source.subject || "Sans objet"}
+                          </span>
+                          <span className="mt-1 block truncate text-xs text-[#52525b]">
+                            {source.sender} · {new Date(source.receivedAt).toLocaleDateString("fr-FR")}
+                          </span>
+                        </span>
+                      </label>
+                    </li>
+                  );
+                })}
+              </ol>
+            </div>
           ) : null}
           {searchState.gmailQuery ? (
-            <button
-              type="button"
-              onClick={() => onApplyGmailQuery(searchState.gmailQuery)}
-              className="mt-3 inline-flex min-h-11 cursor-pointer items-center justify-center rounded-xl border border-blue-200 bg-blue-50 px-3 text-sm font-semibold text-blue-900 transition-colors hover:bg-blue-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-900"
-            >
-              Afficher ces résultats dans la liste
-            </button>
+            <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+              <button
+                type="button"
+                disabled={selectedSourceIds.size === 0}
+                onClick={() =>
+                  onSelectSearchResults(
+                    [...selectedSourceIds],
+                    searchState.gmailQuery,
+                  )
+                }
+                className="inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 text-sm font-semibold text-white transition-colors hover:bg-blue-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-900 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <MailboxIcon name="check" className="size-4" />
+                Afficher et sélectionner {selectedSourceIds.size || "les"} email(s)
+              </button>
+              <button
+                type="button"
+                onClick={() => onApplyGmailQuery(searchState.gmailQuery)}
+                className="inline-flex min-h-11 cursor-pointer items-center justify-center rounded-xl border border-blue-200 bg-blue-50 px-4 text-sm font-semibold text-blue-900 transition-colors hover:bg-blue-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-900"
+              >
+                Afficher tous les résultats
+              </button>
+            </div>
           ) : null}
         </div>
       ) : null}

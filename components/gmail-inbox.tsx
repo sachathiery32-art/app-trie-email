@@ -65,6 +65,7 @@ type DetailState =
 type Notice = { tone: "success" | "error" | "info"; message: string };
 
 const PERSONAL_FOLDER_PREFIX = "Dossiers/";
+const AI_FOLDER_PREFIX = "AI/";
 const DEFAULT_MAIL_SETTINGS: MailSettingsData = {
   databaseReady: false,
   preferences: {
@@ -810,6 +811,27 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
   const personalRootFolders = personalFolderLabels.filter(
     (label) => label.name.split("/").length === 2,
   );
+  const aiFolderLabels = (data?.labels ?? [])
+    .filter(
+      (label) => label.type === "user" && label.name.startsWith(AI_FOLDER_PREFIX),
+    )
+    .sort((left, right) => left.name.localeCompare(right.name, "fr"));
+  const aiCategoryLabels = aiFolderLabels.filter((label) =>
+    label.name.startsWith("AI/Catégorie/"),
+  );
+  const aiUrgentLabel = aiFolderLabels.find(
+    (label) => label.name === "AI/Priorité/Urgent",
+  );
+  const aiReplyLabel = aiFolderLabels.find(
+    (label) => label.name === "AI/Action/Réponse requise",
+  );
+  const aiAllQuery = aiCategoryLabels.length
+    ? `{${aiCategoryLabels.map((label) => `label:"${label.name}"`).join(" ")}}`
+    : 'label:"AI/Triés"';
+  const aiSortedCount = aiCategoryLabels.reduce(
+    (total, label) => total + (label.messagesTotal ?? 0),
+    0,
+  );
   const selectedMessage = useMemo(
     () => data?.messages.find((message) => message.id === selectedMessageId) ?? null,
     [data, selectedMessageId],
@@ -1071,6 +1093,21 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
     detailCache.current.clear();
   }
 
+  function selectAiSearchResults(messageIds: string[], query: string) {
+    const uniqueIds = [...new Set(messageIds)];
+    if (!uniqueIds.length) return;
+    applyGmailQuery(query);
+    setSelectedMessageIds(new Set(uniqueIds));
+    setSelectedMessageId(uniqueIds[0] ?? null);
+    setNotice({
+      tone: "info",
+      message: `${uniqueIds.length} email(s) proposé(s) par l’assistant sont maintenant sélectionnés.`,
+    });
+    window.requestAnimationFrame(() => {
+      document.getElementById("gmail-message-list")?.scrollIntoView({ block: "start" });
+    });
+  }
+
   async function performAction(action: GmailModifyAction, labelId?: string) {
     if (!selectedMessage || actionPending) return;
     setActionPending(true);
@@ -1305,9 +1342,17 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
       label.name.startsWith(PERSONAL_FOLDER_PREFIX) &&
       search === `label:"${label.name}"`,
   );
-  const currentViewLabel = activePersonalFolder
-    ? activePersonalFolder.name.split("/").at(-1) ?? "Dossier"
-    : (VIEW_ITEMS.find((item) => item.value === currentView)?.label ?? "Gmail");
+  const activeAiFolder = aiFolderLabels.find(
+    (label) => search === `label:"${label.name}"`,
+  );
+  const currentViewLabel =
+    currentView === "all" && search === aiAllQuery
+      ? "Triés par l’IA"
+      : activeAiFolder
+        ? activeAiFolder.name.split("/").at(-1) ?? "Tri IA"
+        : activePersonalFolder
+          ? activePersonalFolder.name.split("/").at(-1) ?? "Dossier"
+          : (VIEW_ITEMS.find((item) => item.value === currentView)?.label ?? "Gmail");
 
   return (
     <div className="min-h-screen bg-[#f4f4f5] text-[#18181b]">
@@ -1420,6 +1465,106 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
                 );
               })}
             </nav>
+
+            <div className="mt-4 border-t border-[#e4e4e7] pt-4">
+              <div className="px-3">
+                <p className="text-xs font-semibold uppercase tracking-[0.08em] text-blue-700">
+                  Triés par l’IA
+                </p>
+                <p className="mt-1 text-xs leading-5 text-[#52525b]">
+                  Retrouvez ici les emails classés automatiquement.
+                </p>
+              </div>
+              <nav aria-label="Emails triés par l’intelligence artificielle" className="mt-2 grid gap-1 sm:grid-cols-2 lg:grid-cols-1">
+                <button
+                  type="button"
+                  onClick={() => applyGmailQuery(aiAllQuery)}
+                  aria-current={currentView === "all" && search === aiAllQuery ? "page" : undefined}
+                  className={`flex min-h-11 w-full cursor-pointer items-center gap-2 rounded-xl px-3 text-left text-sm font-bold transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 ${
+                    currentView === "all" && search === aiAllQuery
+                      ? "bg-blue-50 text-blue-800"
+                      : "text-[#3f3f46] hover:bg-[#f4f4f5]"
+                  }`}
+                >
+                  <MailboxIcon name="sparkles" className="size-4 shrink-0 text-blue-700" />
+                  <span className="truncate">Tous les emails triés</span>
+                  <span className="ml-auto text-xs tabular-nums">{aiSortedCount}</span>
+                </button>
+                {aiUrgentLabel ? (
+                  <button
+                    type="button"
+                    onClick={() => applyGmailQuery(`label:"${aiUrgentLabel.name}"`)}
+                    aria-current={currentView === "all" && search === `label:"${aiUrgentLabel.name}"` ? "page" : undefined}
+                    className={`flex min-h-11 w-full cursor-pointer items-center gap-2 rounded-xl px-3 text-left text-sm font-semibold transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-700 ${
+                      currentView === "all" && search === `label:"${aiUrgentLabel.name}"`
+                        ? "bg-red-50 text-red-800"
+                        : "text-[#52525b] hover:bg-red-50 hover:text-red-800"
+                    }`}
+                  >
+                    <MailboxIcon name="clock" className="size-4 shrink-0 text-red-700" />
+                    <span className="truncate">Urgents</span>
+                    {typeof aiUrgentLabel.messagesTotal === "number" ? (
+                      <span className="ml-auto text-xs tabular-nums">{aiUrgentLabel.messagesTotal}</span>
+                    ) : null}
+                  </button>
+                ) : null}
+                {aiReplyLabel ? (
+                  <button
+                    type="button"
+                    onClick={() => applyGmailQuery(`label:"${aiReplyLabel.name}"`)}
+                    aria-current={currentView === "all" && search === `label:"${aiReplyLabel.name}"` ? "page" : undefined}
+                    className={`flex min-h-11 w-full cursor-pointer items-center gap-2 rounded-xl px-3 text-left text-sm font-semibold transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700 ${
+                      currentView === "all" && search === `label:"${aiReplyLabel.name}"`
+                        ? "bg-amber-50 text-amber-900"
+                        : "text-[#52525b] hover:bg-amber-50 hover:text-amber-900"
+                    }`}
+                  >
+                    <MailboxIcon name="reply" className="size-4 shrink-0 text-amber-700" />
+                    <span className="truncate">Réponse requise</span>
+                    {typeof aiReplyLabel.messagesTotal === "number" ? (
+                      <span className="ml-auto text-xs tabular-nums">{aiReplyLabel.messagesTotal}</span>
+                    ) : null}
+                  </button>
+                ) : null}
+              </nav>
+              {aiCategoryLabels.length ? (
+                <details className="mt-1">
+                  <summary className="flex min-h-11 cursor-pointer items-center gap-2 rounded-xl px-3 text-sm font-semibold text-[#52525b] transition-colors hover:bg-[#f4f4f5] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700">
+                    <MailboxIcon name="label" className="size-4 shrink-0 text-blue-600" />
+                    Parcourir les catégories
+                    <span className="ml-auto text-xs tabular-nums">{aiCategoryLabels.length}</span>
+                  </summary>
+                  <div className="ml-5 border-l border-blue-100 pl-1">
+                    {aiCategoryLabels.map((label) => {
+                      const query = `label:"${label.name}"`;
+                      const selected = currentView === "all" && search === query;
+                      return (
+                        <button
+                          key={label.id}
+                          type="button"
+                          onClick={() => applyGmailQuery(query)}
+                          aria-current={selected ? "page" : undefined}
+                          className={`flex min-h-11 w-full cursor-pointer items-center gap-2 rounded-xl px-3 text-left text-sm font-semibold transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 ${
+                            selected
+                              ? "bg-blue-50 text-blue-800"
+                              : "text-[#52525b] hover:bg-[#f4f4f5]"
+                          }`}
+                        >
+                          <span className="truncate">{label.name.split("/").at(-1)}</span>
+                          {typeof label.messagesTotal === "number" ? (
+                            <span className="ml-auto text-xs tabular-nums">{label.messagesTotal}</span>
+                          ) : null}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </details>
+              ) : (
+                <p className="mx-3 mt-2 rounded-xl bg-blue-50 p-3 text-xs leading-5 text-blue-900">
+                  Lancez un premier classement pour remplir cette section.
+                </p>
+              )}
+            </div>
 
             <div className="mt-4 border-t border-[#e4e4e7] pt-4">
               <div className="flex items-center justify-between gap-2 px-3">
@@ -1640,6 +1785,7 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
                   triageProgress={triageProgress}
                   onTriage={runAiTriage}
                   onApplyGmailQuery={applyGmailQuery}
+                  onSelectSearchResults={selectAiSearchResults}
                   preferences={aiPreferences}
                   onPreferencesChange={changeAiPreferences}
                 />
@@ -1688,7 +1834,7 @@ export function GmailInbox({ user }: { user: AuthenticatedUser }) {
               </section>
             ) : null}
 
-            <section aria-label="Messages Gmail" className="mt-3 overflow-hidden rounded-2xl border border-[#e4e4e7] bg-white shadow-sm">
+            <section id="gmail-message-list" aria-label="Messages Gmail" className="mt-3 scroll-mt-4 overflow-hidden rounded-2xl border border-[#e4e4e7] bg-white shadow-sm">
               {data ? (
                 <nav aria-label="Catégories de messages" className="flex min-h-16 items-stretch overflow-x-auto border-b border-[#e4e4e7] bg-white px-1">
                   <button
