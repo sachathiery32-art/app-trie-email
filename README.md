@@ -22,7 +22,7 @@ suivi pour un usage d'entrepreneur.
 - renouvellement automatique du `watch` Gmail et traitement périodique des
   envois et rappels ;
 - rédaction, reformulation, analyse, recherche en langage naturel et classement
-  automatique avec Qwen3.8 Max via xKiro ;
+  automatique avec Qwen3.8 Max (offre gratuite xKiro) ;
 - interface responsive, accessible au clavier et pensée pour afficher beaucoup
   de messages sans perdre les commandes principales.
 

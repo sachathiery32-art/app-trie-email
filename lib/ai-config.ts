@@ -1,6 +1,6 @@
 import "server-only";
 
-export const AI_MODEL = "qwen/qwen3.8-max";
+export const AI_MODEL = "qwen/qwen3.8-max:free";
 
 export const AI_INPUT_LIMITS = {
   emailBodyCharacters: 16_000,
